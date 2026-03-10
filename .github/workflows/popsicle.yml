@@ -50,8 +50,6 @@ env:
   BAZEL_CACHE_DIR: ${{ github.workspace }}/.cache/bazel
   # Hardcoded — no matrix, no variant input
   KSU_VARIANT:     kowsu
-  KSU_REPO:        KOWX712/KernelSU
-  KSU_BRANCH:      master
 
 jobs:
   build:
@@ -159,7 +157,7 @@ jobs:
           fi
 
           echo "🔄 repo sync..."
-          repo sync -c -j$(nproc) --no-tags --fail-fast --trace
+          repo --trace sync -c -j$(nproc) --no-tags --fail-fast
           echo "✅ Sync complete" && df -h /
 
       # ----------------------------------------------------------------
@@ -172,48 +170,55 @@ jobs:
           clean: false
 
       # ----------------------------------------------------------------
-      # 7. Clone SuSFS
+      # 7. Clone SuSFS and yapixel/kernel_patches
       # ----------------------------------------------------------------
-      - name: Clone SuSFS
-        if: env.ENABLE_SUSFS == 'true'
+      - name: Clone SuSFS and kernel_patches
         run: |
-          SUSFS_BRANCH="gki-android16-6.12"
           SUSFS_PATH="$KERNEL_ROOT/../susfs4ksu"
+          PATCHES_PATH="$KERNEL_ROOT/../kernel_patches"
 
+          # SuSFS (always cloned — needed even when ENABLE_SUSFS=false for
+          # the version capture; patching is gated below)
           if [ -d "$SUSFS_PATH/.git" ]; then
-            echo "♻️ Updating existing SuSFS tree..."
-            git -C "$SUSFS_PATH" fetch --depth=1 origin "$SUSFS_BRANCH"
-            git -C "$SUSFS_PATH" reset --hard "origin/$SUSFS_BRANCH"
+            echo "♻️ Updating SuSFS..."
+            git -C "$SUSFS_PATH" fetch --depth=1 origin gki-android16-6.12
+            git -C "$SUSFS_PATH" reset --hard origin/gki-android16-6.12
             git -C "$SUSFS_PATH" clean -fdx
           else
-            git clone --depth=1 --branch="$SUSFS_BRANCH" \
+            git clone --depth=1 --branch=gki-android16-6.12 \
               https://gitlab.com/simonpunk/susfs4ksu "$SUSFS_PATH"
           fi
 
+          # yapixel/kernel_patches — provides kowsu/10_enable_susfs_for_ksu.patch
+          if [ -d "$PATCHES_PATH/.git" ]; then
+            echo "♻️ Updating kernel_patches..."
+            git -C "$PATCHES_PATH" pull --depth=1
+          else
+            git clone --depth=1 \
+              https://github.com/yapixel/kernel_patches.git "$PATCHES_PATH"
+          fi
+
           echo "SUSFS_DIR=$(realpath $SUSFS_PATH)"                              >> $GITHUB_ENV
+          echo "PATCHES_DIR=$(realpath $PATCHES_PATH)"                          >> $GITHUB_ENV
           echo "SUSFS_COMMIT_SHORT=$(git -C $SUSFS_PATH log -1 --format='%h')" >> $GITHUB_ENV
           echo "SUSFS_COMMIT_MSG=$(git -C $SUSFS_PATH log -1 --format='%s')"   >> $GITHUB_ENV
 
       # ----------------------------------------------------------------
-      # 8. Integrate KowSU into common/drivers/kernelsu
+      # 8. Set up KowSU via upstream setup.sh
+      #    setup.sh clones KernelSU, wires drivers/kernelsu, and updates
+      #    Makefile/Kconfig — no manual symlink needed.
       # ----------------------------------------------------------------
       - name: Setup KowSU
         run: |
-          COMMON_DIR="$KERNEL_ROOT/common"
-          rm -rf "$COMMON_DIR/KernelSU" "$COMMON_DIR/drivers/kernelsu"
+          cd "$KERNEL_ROOT/common"
+          rm -rf KernelSU drivers/kernelsu
 
-          echo "📥 Cloning KowSU ($KSU_REPO @ $KSU_BRANCH)..."
-          git clone --depth=1 --branch="$KSU_BRANCH" \
-            "https://github.com/$KSU_REPO.git" "$COMMON_DIR/KernelSU"
+          echo "📥 Running KowSU setup.sh..."
+          curl -LSs \
+            https://raw.githubusercontent.com/KOWX712/KernelSU/master/kernel/setup.sh \
+            | bash -s master
 
-          ln -sf ../KernelSU/kernel "$COMMON_DIR/drivers/kernelsu"
-          echo "🔗 Symlinked KernelSU/kernel → common/drivers/kernelsu"
-
-          grep -q "kernelsu" "$COMMON_DIR/drivers/Makefile" \
-            || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> "$COMMON_DIR/drivers/Makefile"
-          grep -q "kernelsu" "$COMMON_DIR/drivers/Kconfig" \
-            || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' \
-               "$COMMON_DIR/drivers/Kconfig"
+          echo "✅ KowSU integrated"
 
       # ----------------------------------------------------------------
       # 9. Capture KowSU version and commit info
@@ -240,49 +245,25 @@ jobs:
         if: env.ENABLE_SUSFS == 'true'
         run: |
           COMMON_DIR="$KERNEL_ROOT/common"
-
-          cp "$SUSFS_DIR/kernel_patches/fs/susfs.c"               "$COMMON_DIR/fs/"
-          cp "$SUSFS_DIR/kernel_patches/include/linux/susfs.h"     "$COMMON_DIR/include/linux/"
-          cp "$SUSFS_DIR/kernel_patches/include/linux/susfs_def.h" "$COMMON_DIR/include/linux/"
-
-          # Core GKI patch — prefer variant-specific override
           PATCH_NAME="50_add_susfs_in_gki-android16-6.12.patch"
-          VARIANT_PATCH="${{ github.workspace }}/workflow-repo/.github/patches/kowsu/$PATCH_NAME"
-          DEFAULT_PATCH="$SUSFS_DIR/kernel_patches/$PATCH_NAME"
 
+          # Copy SuSFS source files into kernel tree
+          cp "$SUSFS_DIR/kernel_patches/fs/"*              "$COMMON_DIR/fs/"
+          cp "$SUSFS_DIR/kernel_patches/include/linux/"*   "$COMMON_DIR/include/linux/"
+
+          # Apply core GKI SuSFS patch
+          cp "$SUSFS_DIR/kernel_patches/$PATCH_NAME" "$COMMON_DIR/"
           cd "$COMMON_DIR"
-          if [ -f "$VARIANT_PATCH" ]; then
-            echo "📋 Applying custom SuSFS patch (kowsu override)..."
-            patch -p1 --forward < "$VARIANT_PATCH" \
-              || echo "⚠️ Core SuSFS patch failed or already applied"
-          elif [ -f "$DEFAULT_PATCH" ]; then
-            echo "📋 Applying default SuSFS patch..."
-            patch -p1 --forward < "$DEFAULT_PATCH" \
-              || echo "⚠️ Core SuSFS patch failed or already applied"
-          else
-            echo "❌ SuSFS core patch not found:" \
-              && echo "   $VARIANT_PATCH" \
-              && echo "   $DEFAULT_PATCH" \
-              && exit 1
-          fi
+          echo "📋 Applying $PATCH_NAME..."
+          patch -p1 -F 3 < "$PATCH_NAME" \
+            || echo "⚠️ Core SuSFS patch failed or already applied"
 
-          # KSU enablement patch
-          KSU_PATCH_NAME="10_enable_susfs_for_ksu.patch"
-          VARIANT_KSU_PATCH="${{ github.workspace }}/workflow-repo/.github/patches/kowsu/$KSU_PATCH_NAME"
-          DEFAULT_KSU_PATCH="$SUSFS_DIR/kernel_patches/KernelSU/$KSU_PATCH_NAME"
-
+          # Apply KSU enablement patch from yapixel/kernel_patches
           cd "$COMMON_DIR/KernelSU"
-          if [ -f "$VARIANT_KSU_PATCH" ]; then
-            echo "📋 Applying custom KSU SuSFS patch (kowsu override)..."
-            patch -p1 --forward < "$VARIANT_KSU_PATCH" \
-              || { echo "❌ KSU SuSFS patch failed!" && exit 1; }
-          elif [ -f "$DEFAULT_KSU_PATCH" ]; then
-            echo "📋 Applying default KSU SuSFS patch..."
-            patch -p1 --forward < "$DEFAULT_KSU_PATCH" \
-              || { echo "❌ KSU SuSFS patch failed!" && exit 1; }
-          else
-            echo "❌ KSU SuSFS patch not found!" && exit 1
-          fi
+          echo "📋 Applying 10_enable_susfs_for_ksu.patch (kowsu)..."
+          cp "$PATCHES_DIR/kowsu/10_enable_susfs_for_ksu.patch" ./
+          patch -p1 < 10_enable_susfs_for_ksu.patch \
+            || { echo "❌ KSU SuSFS patch failed!" && exit 1; }
 
       # ----------------------------------------------------------------
       # 11. Apply misc source fixes
