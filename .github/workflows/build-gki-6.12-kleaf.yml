@@ -285,26 +285,24 @@ jobs:
           echo "🚫 Removing GKI protected exports..."
           rm -f "$COMMON_DIR/android/abi_gki_protected_exports_"* || true
 
-          # ── Kernel version spoof ────────────────────────────────────────
+          # ── Kernel version spoof ──────────────────────────────────────
           # Target: 6.12.23-android16-5-g6928909e3148-abogki444322847-4k
           echo "🎭 Spoofing kernel version..."
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ github.event.inputs.sub_level }}/" \
             "$COMMON_DIR/Makefile"
-
-          # Replace setlocalversion entirely so Kleaf gets our fixed suffix
           printf '#!/bin/sh\necho "-android16-5-g6928909e3148-abogki444322847-4k"\n' \
             > "$COMMON_DIR/scripts/setlocalversion"
           chmod +x "$COMMON_DIR/scripts/setlocalversion"
           echo "✅ Version spoofed: ${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}-android16-5-g6928909e3148-abogki444322847-4k"
 
-          # ── Build metadata spoof ────────────────────────────────────────
-          # Target: Linux version ...(kleaf@build-host)(...) #1 SMP PREEMPT Fri Sep 12 04:57:41 UTC 2025
-          echo "KBUILD_BUILD_USER=kleaf"                          >> $GITHUB_ENV
-          echo "KBUILD_BUILD_HOST=build-host"                     >> $GITHUB_ENV
+          # ── Build metadata spoof ──────────────────────────────────────
+          # Target: (kleaf@build-host) #1 SMP PREEMPT Fri Sep 12 04:57:41 UTC 2025
+          echo "KBUILD_BUILD_USER=kleaf"                             >> $GITHUB_ENV
+          echo "KBUILD_BUILD_HOST=build-host"                        >> $GITHUB_ENV
           echo "KBUILD_BUILD_TIMESTAMP=Fri Sep 12 04:57:41 UTC 2025" >> $GITHUB_ENV
-          echo "KBUILD_BUILD_VERSION=1"                           >> $GITHUB_ENV
+          echo "KBUILD_BUILD_VERSION=1"                              >> $GITHUB_ENV
 
-          # ── libbpf type cast fix ────────────────────────────────────────
+          # ── libbpf type cast fix ──────────────────────────────────────
           if grep -q 'next_path = strchr' \
               "$COMMON_DIR/tools/lib/bpf/libbpf.c" 2>/dev/null; then
             sed -i \
@@ -394,27 +392,6 @@ jobs:
         run: |
           cd "$KERNEL_ROOT"
           mkdir -p "$DIST_DIR" "$BAZEL_CACHE_DIR"
-
-          # ── depmod fix ─────────────────────────────────────────────────
-          # Kleaf's KernelModulesInstall calls depmod with -d (--basedir).
-          # The host kmod depmod doesn't know -d; the repo-synced prebuilt does.
-          # processwrapper-sandbox resolves /sbin/depmod from the host at build
-          # time, so PATH tricks don't help. Instead we overwrite the host binary
-          # with a wrapper that delegates to the prebuilt.
-          PREBUILTS_BIN="$KERNEL_ROOT/prebuilts/kernel-build-tools/linux-x86/bin"
-          PREBUILT_DEPMOD="$PREBUILTS_BIN/depmod"
-
-          if [ -f "$PREBUILT_DEPMOD" ]; then
-            echo "✅ Using prebuilt depmod: $PREBUILT_DEPMOD"
-            sudo ln -sf "$PREBUILT_DEPMOD" /sbin/depmod
-            sudo ln -sf "$PREBUILT_DEPMOD" /usr/sbin/depmod
-            echo "   depmod -V: $(depmod -V 2>&1 || true)"
-          else
-            echo "⚠️ Prebuilt depmod not found at $PREBUILT_DEPMOD"
-            echo "   Attempting to install kmod from source for -d support..."
-            # kmod >= 27 supports -d; Ubuntu runner ships an older version
-            sudo apt-get install -y --no-install-recommends kmod || true
-          fi
 
           BUILD_FLAGS=(
             "--disk_cache=$BAZEL_CACHE_DIR"
