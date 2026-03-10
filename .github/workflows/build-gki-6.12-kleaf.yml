@@ -29,11 +29,6 @@ on:
         required: true
         default: '2025-05-exp'
         type: string
-      force_clean_build:
-        description: 'Force clean Bazel build (--expunge)'
-        required: false
-        default: false
-        type: boolean
       create_release:
         description: 'Create GitHub Release'
         required: false
@@ -55,7 +50,6 @@ env:
   OS_PATCH_LEVEL:  ${{ github.event.inputs.os_patch_level }}
   KERNEL_ROOT:     ${{ github.workspace }}/android-kernel
   DIST_DIR:        ${{ github.workspace }}/dist
-  BAZEL_CACHE_DIR: ${{ github.workspace }}/.cache/bazel
   # Hardcoded — no matrix, no variant input
   KSU_VARIANT:     kowsu
 
@@ -122,19 +116,6 @@ jobs:
           echo "$HOME/bin" >> $GITHUB_PATH
           git config --global user.email "ci@github.actions"
           git config --global user.name  "GitHub Actions"
-
-      # ----------------------------------------------------------------
-      # 4. Restore Bazel disk cache
-      # ----------------------------------------------------------------
-      - name: Restore Bazel cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.BAZEL_CACHE_DIR }}
-          key: bazel-kowsu-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}-${{ github.sha }}
-          restore-keys: |
-            bazel-kowsu-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}-
-            bazel-kowsu-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}-
-            bazel-kowsu-
 
       # ----------------------------------------------------------------
       # 5. repo init + sync
@@ -285,24 +266,32 @@ jobs:
           echo "🚫 Removing GKI protected exports..."
           rm -f "$COMMON_DIR/android/abi_gki_protected_exports_"* || true
 
-          # ── Kernel version spoof ──────────────────────────────────────
-          # Target: 6.12.23-android16-5-g6928909e3148-abogki444322847-4k
-          echo "🎭 Spoofing kernel version..."
+          # ── Kernel version spoof ──────────────────────────────────────────
+          # We set KBUILD_BUILD_* env vars and pass them via --action_env
+          # into the Bazel sandbox at build time. This avoids touching
+          # setlocalversion before the build.
+          #
+          # SUBLEVEL patch: aligns Makefile version with our target 6.12.23
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ github.event.inputs.sub_level }}/" \
             "$COMMON_DIR/Makefile"
-          printf '#!/bin/sh\necho "-android16-5-g6928909e3148-abogki444322847-4k"\n' \
-            > "$COMMON_DIR/scripts/setlocalversion"
-          chmod +x "$COMMON_DIR/scripts/setlocalversion"
-          echo "✅ Version spoofed: ${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}-android16-5-g6928909e3148-abogki444322847-4k"
 
-          # ── Build metadata spoof ──────────────────────────────────────
-          # Target: (kleaf@build-host) #1 SMP PREEMPT Fri Sep 12 04:57:41 UTC 2025
+          # Patch setlocalversion to emit our fixed suffix.
+          # NOTE: We only strip the dirty-check block, then append our echo.
+          # This keeps the file mostly intact so Bazel sees minimal change.
+          sed -i '/# Check for uncommitted changes\./,/fi/d' \
+            "$COMMON_DIR/scripts/setlocalversion" || true
+          # Append our spoofed suffix as the final output
+          printf '\n# Spoofed version suffix\necho "-android16-5-g6928909e3148-abogki444322847-4k"\n' \
+            >> "$COMMON_DIR/scripts/setlocalversion"
+          echo "✅ setlocalversion patched"
+
+          # Build metadata — passed into sandbox via --action_env below
           echo "KBUILD_BUILD_USER=kleaf"                             >> $GITHUB_ENV
           echo "KBUILD_BUILD_HOST=build-host"                        >> $GITHUB_ENV
           echo "KBUILD_BUILD_TIMESTAMP=Fri Sep 12 04:57:41 UTC 2025" >> $GITHUB_ENV
           echo "KBUILD_BUILD_VERSION=1"                              >> $GITHUB_ENV
 
-          # ── libbpf type cast fix ──────────────────────────────────────
+          # ── libbpf type cast fix ──────────────────────────────────────────
           if grep -q 'next_path = strchr' \
               "$COMMON_DIR/tools/lib/bpf/libbpf.c" 2>/dev/null; then
             sed -i \
@@ -376,25 +365,14 @@ jobs:
           echo "FRAGMENT=$FRAGMENT" >> $GITHUB_ENV
 
       # ----------------------------------------------------------------
-      # 13. Force-clean Bazel cache (only when requested)
-      # ----------------------------------------------------------------
-      - name: Clean Bazel cache
-        if: github.event.inputs.force_clean_build == 'true'
-        run: |
-          cd "$KERNEL_ROOT"
-          tools/bazel clean --expunge || true
-          echo "🧹 Bazel cache expunged"
-
-      # ----------------------------------------------------------------
       # 14. Build with Kleaf
       # ----------------------------------------------------------------
       - name: Build kernel (Kleaf / Bazel)
         run: |
           cd "$KERNEL_ROOT"
-          mkdir -p "$DIST_DIR" "$BAZEL_CACHE_DIR"
+          mkdir -p "$DIST_DIR"
 
           BUILD_FLAGS=(
-            "--disk_cache=$BAZEL_CACHE_DIR"
             "--config=fast"
             "--lto=none"
             "--defconfig_fragment=//common:arch/arm64/configs/ksu_susfs.fragment"
