@@ -24,15 +24,10 @@ on:
         default: '23'
         type: string
       os_patch_level:
-        description: 'OS patch level (e.g. 2025-05-exp)'
+        description: 'OS patch level (e.g. 2025-05 or 2025-05-exp)'
         required: true
-        default: '2025-05-exp'
+        default: '2025-05'
         type: string
-      disable_susfs:
-        description: 'Disable SuSFS'
-        required: false
-        default: false
-        type: boolean
       force_clean_build:
         description: 'Force clean Bazel build (--expunge)'
         required: false
@@ -67,9 +62,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 300
-
-    env:
-      ENABLE_SUSFS: ${{ github.event.inputs.disable_susfs == 'true' && 'false' || 'true' }}
 
     steps:
       # ----------------------------------------------------------------
@@ -190,8 +182,7 @@ jobs:
           SUSFS_PATH="$KERNEL_ROOT/../susfs4ksu"
           PATCHES_PATH="$KERNEL_ROOT/../kernel_patches"
 
-          # SuSFS (always cloned — needed even when ENABLE_SUSFS=false for
-          # the version capture; patching is gated below)
+          # SuSFS always cloned and applied
           if [ -d "$SUSFS_PATH/.git" ]; then
             echo "♻️ Updating SuSFS..."
             git -C "$SUSFS_PATH" fetch --depth=1 origin "gki-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}"
@@ -260,7 +251,7 @@ jobs:
       # 10. Apply SuSFS patches
       # ----------------------------------------------------------------
       - name: Apply SuSFS patches
-        if: env.ENABLE_SUSFS == 'true'
+        # SuSFS always enabled
         run: |
           COMMON_DIR="$KERNEL_ROOT/common"
           PATCH_NAME="50_add_susfs_in_gki-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}.patch"
@@ -293,9 +284,22 @@ jobs:
           echo "🚫 Removing GKI protected exports..."
           rm -f "$COMMON_DIR/android/abi_gki_protected_exports_"* || true
 
-          # Keep kernel version string clean (no -dirty suffix)
-          sed -i '/# Check for uncommitted changes\./,/fi/d' \
-            "$COMMON_DIR/scripts/setlocalversion" || true
+          # Spoof kernel version string
+          # Target: 6.12.23-android16-5-g6928909e3148-abogki444322847-4k
+          # Kleaf builds the version as: VERSION.PATCHLEVEL.SUBLEVEL + setlocalversion output
+          # We patch SUBLEVEL in the Makefile to match, then lock setlocalversion output.
+          echo "🎭 Spoofing kernel version..."
+          sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ github.event.inputs.sub_level }}/" \
+            "$COMMON_DIR/Makefile"
+
+          # Replace setlocalversion entirely so it always returns our fixed suffix.
+          # The kernel version will be: 6.12.${sub_level}<output of setlocalversion>
+          cat > "$COMMON_DIR/scripts/setlocalversion" << 'SETLOCALVERSION'
+          #!/bin/sh
+          echo "-android16-5-g6928909e3148-abogki444322847-4k"
+          SETLOCALVERSION
+          chmod +x "$COMMON_DIR/scripts/setlocalversion"
+          echo "✅ Kernel version spoofed to: ${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}-android16-5-g6928909e3148-abogki444322847-4k"
 
           # libbpf type cast fix (present in some 6.12 snapshots)
           if grep -q 'next_path = strchr' \
@@ -355,7 +359,6 @@ jobs:
           printf '%s\n' 'CONFIG_IP6_NF_TARGET_MASQUERADE=y' >> "$FRAGMENT"
 
           # SuSFS configs (only when enabled)
-          if [ "$ENABLE_SUSFS" = "true" ]; then
             printf '%s\n' 'CONFIG_KSU_SUSFS=y' >> "$FRAGMENT"
             printf '%s\n' 'CONFIG_KSU_SUSFS_SUS_PATH=y' >> "$FRAGMENT"
             printf '%s\n' 'CONFIG_KSU_SUSFS_SUS_MOUNT=y' >> "$FRAGMENT"
@@ -367,8 +370,6 @@ jobs:
             printf '%s\n' 'CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y' >> "$FRAGMENT"
             printf '%s\n' 'CONFIG_KSU_SUSFS_OPEN_REDIRECT=y' >> "$FRAGMENT"
             printf '%s\n' 'CONFIG_KSU_SUSFS_SUS_SU=n' >> "$FRAGMENT"
-          fi
-
           echo "📝 Fragment written:" && cat "$FRAGMENT"
           echo "FRAGMENT=$FRAGMENT" >> $GITHUB_ENV
 
@@ -474,7 +475,7 @@ jobs:
           **Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')
           **Kernel:** $KERNEL_VERSION
           **KowSU version:** r$KSU_VERSION
-          **SuSFS:** $( [ "$ENABLE_SUSFS" = "true" ] && echo "Enabled" || echo "Disabled" )
+          **SuSFS:** Enabled
           **Build time:** $BUILD_TIME
 
           ## Components
@@ -483,7 +484,7 @@ jobs:
           |------------|-------------------------|-------------------|
           | KowSU      | \`$KSU_COMMIT_SHORT\`   | $KSU_COMMIT_MSG   |
           | GKI common | \`$K_SHORT\`            | $K_MSG            |
-          $( [ "$ENABLE_SUSFS" = "true" ] && echo "| SuSFS      | \`$SUSFS_COMMIT_SHORT\` | $SUSFS_COMMIT_MSG |" )
+          | SuSFS      | `$SUSFS_COMMIT_SHORT` | $SUSFS_COMMIT_MSG |
 
           ## Devices
           - Pixel 8, Pixel 8a, Pixel 8 Pro
@@ -534,10 +535,10 @@ jobs:
           RELEASE_NOTES="**Build Date:** $(date -u '+%Y-%m-%d %H:%M UTC')
           **Kernel:** ${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}-${{ github.event.inputs.os_patch_level }}
           **Variant:** KowSU
-          **SuSFS:** $( [ "${{ github.event.inputs.disable_susfs }}" = "true" ] && echo "❌ Disabled" || echo "✅ Enabled" )
+          **SuSFS:** ✅ Enabled
 
           ### Supported Devices
-          Pixel 8, Pixel 8a, Pixel 8 Pro
+          Xiaomi popsicle
 
           ### Installation
           Flash the ZIP in Kernel Flasher, or extract \`Image\` and patch \`boot.img\` manually."
@@ -554,4 +555,3 @@ jobs:
                ./*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
