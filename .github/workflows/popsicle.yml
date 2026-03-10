@@ -24,9 +24,9 @@ on:
         default: '23'
         type: string
       os_patch_level:
-        description: 'OS patch level (e.g. 2025-05 or 2025-05-exp)'
+        description: 'OS patch level (e.g. 2025-05-exp)'
         required: true
-        default: '2025-05'
+        default: '2025-05-exp'
         type: string
       disable_susfs:
         description: 'Disable SuSFS'
