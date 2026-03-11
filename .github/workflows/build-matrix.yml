@@ -116,7 +116,8 @@ jobs:
             --repo "${{ github.repository }}" \
             --limit 100 \
             --json tagName \
-            --jq '[.[] | select(.tagName | startswith("'"${SUSFS_VERSION}-r"'"))] | length')
+            --jq ".[] | .tagName" \
+            | grep -c "^${SUSFS_VERSION}-r" || true)
           SUSFS_BUILD_NUM=$(( ${SUSFS_BUILD_NUM:-0} + 1 ))
 
           echo "susfs_build_tag=${SUSFS_VERSION}-r${SUSFS_BUILD_NUM}" >> "$GITHUB_OUTPUT"
@@ -645,51 +646,15 @@ jobs:
           echo "KERNEL_VERSION=$FULL_VER" >> "$GITHUB_ENV"
           echo "📦 Packaged: $ZIP_NAME"
 
-      # -----------------------------------------------------------------------
-      # 15. Write changelog
-      # -----------------------------------------------------------------------
-      - name: Write changelog
-        if: github.event.inputs.create_release == 'true'
-        run: |
-          mkdir -p changelogs
-          CF="changelogs/CHANGELOG-${{ matrix.variant.name }}.md"
-          K_SHORT=$(git -C "$KERNEL_ROOT/common" log -1 --format="%h" 2>/dev/null || echo "unknown")
-          K_MSG=$(  git -C "$KERNEL_ROOT/common" log -1 --format="%s"  2>/dev/null || echo "unknown")
-
-          cat > "$CF" <<EOF
-          # Build Changelog — ${{ matrix.variant.label }} + SuSFS
-
-          **Date:**        $(date -u '+%Y-%m-%d %H:%M:%S UTC')
-          **Kernel:**      $KERNEL_VERSION
-          **${{ matrix.variant.label }}:**  r$KSU_VERSION
-          **SuSFS:**       $SUSFS_VERSION (Enabled)
-          **Build time:**  $BUILD_TIME
-
-          ## Components
-
-          | Component               | Commit                  | Message           |
-          |-------------------------|-------------------------|-------------------|
-          | ${{ matrix.variant.label }} | \`$KSU_COMMIT_SHORT\`   | $KSU_COMMIT_MSG   |
-          | GKI common              | \`$K_SHORT\`            | $K_MSG            |
-          | SuSFS                   | \`$SUSFS_COMMIT_SHORT\` | $SUSFS_COMMIT_MSG |
-
-          ## Supported Devices
-
-          - Xiaomi Popsicle (2509FPN0BC)
-          EOF
-
-          echo "CHANGELOG_FILE=$CF" >> "$GITHUB_ENV"
 
       # -----------------------------------------------------------------------
-      # 16. Upload build artifact
+      # 15. Upload build artifact
       # -----------------------------------------------------------------------
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: kernel-${{ matrix.variant.name }}
-          path: |
-            ${{ env.KERNEL_ZIP }}
-            ${{ env.CHANGELOG_FILE }}
+          path: ${{ env.KERNEL_ZIP }}
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -752,12 +717,12 @@ jobs:
           ### Installation
           Flash the ZIP for your preferred variant via Kernel Flasher, or extract \`Image\` and patch \`boot.img\` manually."
 
+          echo "🏷️  Tag: ${SUSFS_BUILD_TAG}"
+          if [ -z "${SUSFS_BUILD_TAG}" ]; then
+            echo "❌ SUSFS_BUILD_TAG is empty!"; exit 1
+          fi
+
           gh release create "${SUSFS_BUILD_TAG}" \
-            --title  "$RELEASE_TITLE" \
-            --notes  "$RELEASE_NOTES" \
-            --repo   "${{ github.repository }}" \
-            ./*.zip ./*.md 2>/dev/null \
-          || gh release create "${SUSFS_BUILD_TAG}" \
             --title  "$RELEASE_TITLE" \
             --notes  "$RELEASE_NOTES" \
             --repo   "${{ github.repository }}" \
