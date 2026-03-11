@@ -1,47 +1,52 @@
-name: Build GKI Kernel (KowSU + Kleaf) inline patch
+name: Build GKI Kernel — KowSU + SuSFS
 
-# ============================================================
-# BUILD SYSTEM: Kleaf / Bazel (repo-synced toolchain)
-# VARIANT:     kowsu (KOWX712/KernelSU) — hardcoded, no matrix
-# ============================================================
+# =============================================================================
+# Build System : Kleaf / Bazel (repo-synced toolchain)
+# Variant      : KowSU (KOWX712/KernelSU) — hardcoded, no matrix
+# Target       : Xiaomi Popsicle (2509FPN0BC) — android16 / 6.12
+# =============================================================================
 
 on:
   workflow_dispatch:
     inputs:
       android_version:
-        description: 'Android version (e.g. android16)'
+        description: "Android version (e.g. android16)"
         required: true
-        default: 'android16'
+        default: "android16"
         type: string
       kernel_version:
-        description: 'Kernel version (e.g. 6.12)'
+        description: "Kernel version (e.g. 6.12)"
         required: true
-        default: '6.12'
+        default: "6.12"
         type: string
       sub_level:
-        description: 'Kernel sublevel (e.g. 23 for 6.12.23)'
+        description: "Kernel sublevel (e.g. 23 for 6.12.23)"
         required: true
-        default: '23'
+        default: "23"
         type: string
       os_patch_level:
-        description: 'OS patch level (e.g. 2025-05-exp)'
+        description: "OS patch level (e.g. 2025-05-exp)"
         required: true
-        default: '2025-05-exp'
+        default: "2025-05-exp"
         type: string
       create_release:
-        description: 'Create GitHub Release'
+        description: "Create GitHub Release"
         required: false
         default: true
         type: boolean
       debug:
-        description: 'Enable verbose Bazel output'
+        description: "Enable verbose Bazel output"
         required: false
         default: false
         type: boolean
 
+# Default to read-only; create_release job overrides to write
 permissions:
   contents: read
 
+# ---------------------------------------------------------------------------
+# Global environment — shared across all jobs
+# ---------------------------------------------------------------------------
 env:
   ANDROID_VERSION: ${{ github.event.inputs.android_version }}
   KERNEL_VERSION:  ${{ github.event.inputs.kernel_version }}
@@ -51,24 +56,34 @@ env:
   DIST_DIR:        ${{ github.workspace }}/dist
   KSU_VARIANT:     kowsu
 
+# =============================================================================
 jobs:
+# =============================================================================
+
+  # ---------------------------------------------------------------------------
+  # build — compile the kernel and package the AnyKernel3 zip
+  # ---------------------------------------------------------------------------
   build:
+    name: Build Kernel
     runs-on: ubuntu-latest
     timeout-minutes: 300
 
     outputs:
       susfs_version: ${{ steps.clone_susfs.outputs.susfs_version }}
+      ksu_version:   ${{ steps.ksu_version.outputs.ksu_version }}
 
     env:
-      ENABLE_SUSFS: 'true'
+      ENABLE_SUSFS: "true"
 
     steps:
-      # ----------------------------------------------------------------
-      # 1. Free disk space — Kleaf repo sync needs ~20 GB free
-      # ----------------------------------------------------------------
+
+      # -----------------------------------------------------------------------
+      # 1. Reclaim disk space — Kleaf repo sync requires ~20 GB free
+      # -----------------------------------------------------------------------
       - name: Free disk space
         run: |
           echo "=== Disk before cleanup ===" && df -h /
+
           sudo apt-get purge -yq \
             '^aspnetcore-.*' '^dotnet-.*' '^llvm-.*' \
             'php.*' '^mongodb-.*' '^mysql-.*' \
@@ -76,21 +91,26 @@ jobs:
             firefox powershell mono-devel libgl1-mesa-dri \
             'ghc-*' 'cabal-install' \
             || true
+
           sudo rm -rf \
             /usr/share/dotnet /usr/local/lib/android /opt/ghc \
             /opt/hostedtoolcache/CodeQL /usr/local/share/powershell \
             /usr/share/swift /usr/local/.ghcup /usr/lib/jvm \
             /usr/local/graalvm "$AGENT_TOOLSDIRECTORY" \
             || true
+
           docker image prune -af 2>/dev/null || true
           sudo apt-get autoremove -yq
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
+
           echo "=== Disk after cleanup ===" && df -h /
 
-      # ----------------------------------------------------------------
-      # 2. Install host dependencies
-      # ----------------------------------------------------------------
+      # -----------------------------------------------------------------------
+      # 2. Install host build dependencies
+      #    Note: Kleaf supplies its own Clang/lld via manifest prebuilts;
+      #    we only need repo, build-essentials, and a JDK for Bazel.
+      # -----------------------------------------------------------------------
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
@@ -99,17 +119,18 @@ jobs:
             build-essential python3 python3-pip \
             rsync curl git zip unzip \
             libncurses-dev gawk dwarves zstd pahole \
-            openjdk-17-jdk-headless \
-            kmod
+            openjdk-17-jdk-headless kmod
+
           echo "depmod version: $(depmod -V)"
           depmod --help 2>&1 | grep -qE '\-d|basedir' \
             && echo "✅ depmod supports -d" \
-            || echo "⚠️ depmod may not support -d — build may fail at modules_install"
+            || echo "⚠️  depmod may not support -d — modules_install may fail"
+
           echo "✅ Host dependencies installed"
 
-      # ----------------------------------------------------------------
+      # -----------------------------------------------------------------------
       # 3. Install the repo tool
-      # ----------------------------------------------------------------
+      # -----------------------------------------------------------------------
       - name: Install repo
         run: |
           mkdir -p "$HOME/bin"
@@ -117,146 +138,184 @@ jobs:
             -o "$HOME/bin/repo"
           chmod +x "$HOME/bin/repo"
           echo "$HOME/bin" >> $GITHUB_PATH
+
           git config --global user.email "ci@github.actions"
           git config --global user.name  "GitHub Actions"
 
-      # ----------------------------------------------------------------
+      # -----------------------------------------------------------------------
       # 4. Sync kernel sources via repo
-      # ----------------------------------------------------------------
-      - name: Sync kernel sources via repo
+      # -----------------------------------------------------------------------
+      - name: Sync kernel sources
         run: |
           mkdir -p "$KERNEL_ROOT" && cd "$KERNEL_ROOT"
+
           FORMATTED_BRANCH="${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}-${{ github.event.inputs.os_patch_level }}"
-          echo "📦 repo init: branch=common-${FORMATTED_BRANCH}"
+          echo "📦 repo init — branch: common-${FORMATTED_BRANCH}"
+
           repo init \
             --depth=1 \
             -u https://android.googlesource.com/kernel/manifest \
             -b "common-${FORMATTED_BRANCH}"
+
+          # Rewrite manifest if upstream has deprecated the branch
           REMOTE_REF=$(git ls-remote \
             https://android.googlesource.com/kernel/common \
             "${FORMATTED_BRANCH}" || true)
           if grep -q deprecated <<< "$REMOTE_REF"; then
-            echo "⚠️ Deprecated branch detected — rewriting manifest"
-            sed -i "s/\"${FORMATTED_BRANCH}\"/\"deprecated\/${FORMATTED_BRANCH}\"/g" \
+            echo "⚠️  Deprecated branch — rewriting manifest"
+            sed -i \
+              "s/\"${FORMATTED_BRANCH}\"/\"deprecated\/${FORMATTED_BRANCH}\"/g" \
               .repo/manifests/default.xml
           fi
+
           echo "🔄 repo sync..."
-          repo --trace sync -c -j$(nproc --all) --no-tags --fail-fast --force-sync --no-clone-bundle
+          repo --trace sync \
+            -c -j$(nproc --all) \
+            --no-tags --fail-fast --force-sync --no-clone-bundle
+
           echo "✅ Sync complete" && df -h /
 
-      # ----------------------------------------------------------------
-      # 5. Checkout this workflow repo
-      # ----------------------------------------------------------------
+      # -----------------------------------------------------------------------
+      # 5. Checkout this workflow repository
+      # -----------------------------------------------------------------------
       - name: Checkout workflow repo
         uses: actions/checkout@v4
         with:
           path: workflow-repo
           clean: false
 
-      # ----------------------------------------------------------------
+      # -----------------------------------------------------------------------
       # 6. Clone SuSFS and yapixel/kernel_patches
-      # ----------------------------------------------------------------
+      # -----------------------------------------------------------------------
       - name: Clone SuSFS and kernel_patches
         id: clone_susfs
         run: |
           SUSFS_PATH="$KERNEL_ROOT/../susfs4ksu"
           PATCHES_PATH="$KERNEL_ROOT/../kernel_patches"
 
+          # ── SuSFS ────────────────────────────────────────────────────────
           if [ -d "$SUSFS_PATH/.git" ]; then
-            echo "♻️ Updating SuSFS..."
-            git -C "$SUSFS_PATH" fetch --depth=1 origin "gki-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}"
-            git -C "$SUSFS_PATH" reset --hard "origin/gki-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}"
+            echo "♻️  Updating existing SuSFS clone..."
+            git -C "$SUSFS_PATH" fetch --depth=1 origin \
+              "gki-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}"
+            git -C "$SUSFS_PATH" reset --hard \
+              "origin/gki-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}"
             git -C "$SUSFS_PATH" clean -fdx
           else
-            git clone --depth=1 --branch="gki-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}" \
+            git clone --depth=1 \
+              --branch="gki-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}" \
               https://gitlab.com/simonpunk/susfs4ksu "$SUSFS_PATH"
           fi
 
+          # Pin to known-good commit
           echo "📌 Pinning SuSFS to c023d8e4013e..."
           git -C "$SUSFS_PATH" fetch --unshallow 2>/dev/null || true
           git -C "$SUSFS_PATH" fetch origin || true
           git -C "$SUSFS_PATH" reset --hard c023d8e4013eb8b9fcb17d46b705333f06ddae6c
           git -C "$SUSFS_PATH" clean -fdx
 
+          # ── kernel_patches ───────────────────────────────────────────────
           if [ -d "$PATCHES_PATH/.git" ]; then
-            echo "♻️ Updating kernel_patches..."
+            echo "♻️  Updating existing kernel_patches clone..."
             git -C "$PATCHES_PATH" pull --depth=1
           else
             git clone --depth=1 \
               https://github.com/yapixel/kernel_patches.git "$PATCHES_PATH"
           fi
 
+          # ── Capture SuSFS version from header ───────────────────────────
           SUSFS_VERSION=$(grep -oP 'SUSFS_VERSION "\K[^"]+' \
             "$SUSFS_PATH/kernel_patches/include/linux/susfs.h" 2>/dev/null \
             || git -C "$SUSFS_PATH" log -1 --format='%h')
 
-          echo "SUSFS_DIR=$(realpath $SUSFS_PATH)"                              >> $GITHUB_ENV
-          echo "PATCHES_DIR=$(realpath $PATCHES_PATH)"                          >> $GITHUB_ENV
-          echo "SUSFS_VERSION=$SUSFS_VERSION"                                   >> $GITHUB_ENV
-          echo "SUSFS_COMMIT_SHORT=$(git -C $SUSFS_PATH log -1 --format='%h')" >> $GITHUB_ENV
-          echo "SUSFS_COMMIT_MSG=$(git -C $SUSFS_PATH log -1 --format='%s')"   >> $GITHUB_ENV
-          echo "susfs_version=$SUSFS_VERSION"                                   >> $GITHUB_OUTPUT
+          # ── Export to subsequent steps and jobs ──────────────────────────
+          {
+            echo "SUSFS_DIR=$(realpath "$SUSFS_PATH")"
+            echo "PATCHES_DIR=$(realpath "$PATCHES_PATH")"
+            echo "SUSFS_VERSION=$SUSFS_VERSION"
+            echo "SUSFS_COMMIT_SHORT=$(git -C "$SUSFS_PATH" log -1 --format='%h')"
+            echo "SUSFS_COMMIT_MSG=$(git -C "$SUSFS_PATH" log -1 --format='%s')"
+          } >> "$GITHUB_ENV"
+
+          echo "susfs_version=$SUSFS_VERSION" >> "$GITHUB_OUTPUT"
           echo "📌 SuSFS version: $SUSFS_VERSION"
 
-      # ----------------------------------------------------------------
-      # 7. Set up KowSU
-      # ----------------------------------------------------------------
+      # -----------------------------------------------------------------------
+      # 7. Integrate KowSU via upstream setup.sh
+      #    setup.sh clones KernelSU, wires drivers/kernelsu, and updates
+      #    Makefile/Kconfig — no manual symlink needed.
+      # -----------------------------------------------------------------------
       - name: Setup KowSU
         working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
           rm -rf KernelSU drivers/kernelsu
-          echo "📥 Adding KowSU..."
+          echo "📥 Integrating KowSU..."
           KERNEL_DIR="$GITHUB_WORKSPACE/android-kernel/common" \
-            bash <(curl -LSs "https://raw.githubusercontent.com/KOWX712/KernelSU/master/kernel/setup.sh") master
+            bash <(curl -LSs \
+              "https://raw.githubusercontent.com/KOWX712/KernelSU/master/kernel/setup.sh") master
           echo "✅ KowSU integrated"
 
-      # ----------------------------------------------------------------
-      # 8. Capture KowSU version info
-      # ----------------------------------------------------------------
+      # -----------------------------------------------------------------------
+      # 8. Capture KowSU version and commit metadata
+      # -----------------------------------------------------------------------
       - name: Capture KowSU version info
+        id: ksu_version
         run: |
           cd "$KERNEL_ROOT/common/KernelSU"
+
           git fetch --unshallow 2>&1 \
-            || echo "⚠️ Could not unshallow — version count may be approximate"
+            || echo "⚠️  Could not unshallow — version count may be approximate"
+
           KSU_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "0")
           KSU_VERSION=$((KSU_COUNT + 30000))
-          echo "KSU_VERSION=$KSU_VERSION"                              >> $GITHUB_ENV
-          echo "KSU_COMMIT_SHORT=$(git log -1 --format='%h')"         >> $GITHUB_ENV
-          echo "KSU_COMMIT_MSG=$(git log -1 --format='%s')"           >> $GITHUB_ENV
+
+          {
+            echo "KSU_VERSION=$KSU_VERSION"
+            echo "KSU_COMMIT_SHORT=$(git log -1 --format='%h')"
+            echo "KSU_COMMIT_MSG=$(git log -1 --format='%s')"
+          } >> "$GITHUB_ENV"
+
+          echo "ksu_version=$KSU_VERSION" >> "$GITHUB_OUTPUT"
           echo "📌 KowSU version: r$KSU_VERSION"
 
-      # ----------------------------------------------------------------
+      # -----------------------------------------------------------------------
       # 9. Apply SuSFS patches
-      # ----------------------------------------------------------------
+      # -----------------------------------------------------------------------
       - name: Apply SuSFS patches
         run: |
           COMMON_DIR="$KERNEL_ROOT/common"
           PATCH_NAME="50_add_susfs_in_gki-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}.patch"
 
-          cp "$SUSFS_DIR/kernel_patches/fs/"*              "$COMMON_DIR/fs/"
-          cp "$SUSFS_DIR/kernel_patches/include/linux/"*   "$COMMON_DIR/include/linux/"
+          # Copy SuSFS source files into the kernel tree
+          cp "$SUSFS_DIR/kernel_patches/fs/"*            "$COMMON_DIR/fs/"
+          cp "$SUSFS_DIR/kernel_patches/include/linux/"* "$COMMON_DIR/include/linux/"
 
+          # Apply the core GKI SuSFS patch
           cp "$SUSFS_DIR/kernel_patches/$PATCH_NAME" "$COMMON_DIR/"
           cd "$COMMON_DIR"
           echo "📋 Applying $PATCH_NAME..."
           patch -p1 -F 3 < "$PATCH_NAME" \
-            || echo "⚠️ Core SuSFS patch failed or already applied"
+            || echo "⚠️  Core SuSFS patch failed or was already applied"
 
+          # Apply the KSU enablement patch from yapixel/kernel_patches
           cd "$COMMON_DIR/KernelSU"
           echo "📋 Applying 10_enable_susfs_for_ksu.patch (kowsu)..."
           cp "$PATCHES_DIR/kowsu/10_enable_susfs_for_ksu.patch" ./
           patch -p1 < 10_enable_susfs_for_ksu.patch \
-            || { echo "❌ KSU SuSFS patch failed!" && exit 1; }
+            || { echo "❌ KSU SuSFS patch failed!"; exit 1; }
 
-      # ----------------------------------------------------------------
-      # 10. Apply misc source fixes
-      # ----------------------------------------------------------------
+      # -----------------------------------------------------------------------
+      # 10. Apply miscellaneous source fixes
+      # -----------------------------------------------------------------------
       - name: Apply source fixes
         run: |
           COMMON_DIR="$KERNEL_ROOT/common"
+
+          # Remove GKI protected exports (not needed for custom builds)
           echo "🚫 Removing GKI protected exports..."
           rm -f "$COMMON_DIR/android/abi_gki_protected_exports_"* || true
 
+          # ── scripts/mkcompile_h — spoof build identity ──────────────────
           sed -i \
             's|#define LINUX_COMPILE_BY.*|#define LINUX_COMPILE_BY\t"kleaf"|' \
             "$COMMON_DIR/scripts/mkcompile_h"
@@ -268,11 +327,13 @@ jobs:
             "$COMMON_DIR/scripts/mkcompile_h"
           echo "✅ mkcompile_h patched"
 
+          # ── scripts/setlocalversion — fix local version string ───────────
           sed -i \
             's|^echo "\$res"|#echo "$res"\necho "-android16-5-g6928909e3148-abogki444322847-4k"|' \
             "$COMMON_DIR/scripts/setlocalversion"
           echo "✅ setlocalversion patched"
 
+          # ── init/Makefile — hardcode build version and timestamp ─────────
           sed -i \
             's|^build-version = \$(or.*|#build-version = $(or $(KBUILD_BUILD_VERSION), $(build-version-auto))|' \
             "$COMMON_DIR/init/Makefile"
@@ -284,10 +345,13 @@ jobs:
             "$COMMON_DIR/init/Makefile"
           echo "✅ init/Makefile patched"
 
-          sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ github.event.inputs.sub_level }}/" \
+          # ── Makefile — align SUBLEVEL with requested sub_level ───────────
+          sed -i \
+            "s/^SUBLEVEL = .*/SUBLEVEL = ${{ github.event.inputs.sub_level }}/" \
             "$COMMON_DIR/Makefile"
           echo "✅ SUBLEVEL set to ${{ github.event.inputs.sub_level }}"
 
+          # ── tools/lib/bpf/libbpf.c — fix type cast (some 6.12 snapshots) ─
           if grep -q 'next_path = strchr' \
               "$COMMON_DIR/tools/lib/bpf/libbpf.c" 2>/dev/null; then
             sed -i \
@@ -296,71 +360,94 @@ jobs:
             echo "🔧 libbpf.c type cast fixed"
           fi
 
-      # ----------------------------------------------------------------
+      # -----------------------------------------------------------------------
       # 11. Write defconfig fragment
-      # ----------------------------------------------------------------
+      #     Kleaf injects this on top of gki_defconfig via
+      #     --defconfig_fragment at build time.
+      # -----------------------------------------------------------------------
       - name: Write defconfig fragment
         run: |
           FRAGMENT="$KERNEL_ROOT/common/arch/arm64/configs/ksu_susfs.fragment"
           : > "$FRAGMENT"
-          printf '%s\n' 'CONFIG_KSU=y'                                      >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_KSU_KPROBES_HOOK=n'                        >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_TMPFS_XATTR=y'                             >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_TMPFS_POSIX_ACL=y'                         >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_NF_TARGET_TTL=y'                        >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP6_NF_TARGET_HL=y'                        >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP6_NF_MATCH_HL=y'                         >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_TCP_CONG_ADVANCED=y'                       >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_TCP_CONG_BBR=y'                            >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_NET_SCH_FQ=y'                              >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_TCP_CONG_BIC=n'                            >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_TCP_CONG_WESTWOOD=n'                       >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_TCP_CONG_HTCP=n'                           >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_BPF_STREAM_PARSER=y'                       >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y'             >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_NETFILTER_XT_SET=y'                        >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_SET=y'                                  >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_SET_MAX=65534'                          >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_SET_BITMAP_IP=y'                        >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_SET_BITMAP_IPMAC=y'                     >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_SET_BITMAP_PORT=y'                      >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_SET_HASH_IP=y'                          >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_SET_HASH_IPMARK=y'                      >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_SET_HASH_IPPORT=y'                      >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_SET_HASH_IPPORTIP=y'                    >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_SET_HASH_IPPORTNET=y'                   >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_SET_HASH_IPMAC=y'                       >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_SET_HASH_MAC=y'                         >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_SET_HASH_NETPORTNET=y'                  >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_SET_HASH_NET=y'                         >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_SET_HASH_NETNET=y'                      >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_SET_HASH_NETPORT=y'                     >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_SET_HASH_NETIFACE=y'                    >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP_SET_LIST_SET=y'                         >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP6_NF_NAT=y'                              >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_IP6_NF_TARGET_MASQUERADE=y'                >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_KSU_SUSFS=y'                               >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_KSU_SUSFS_SUS_PATH=y'                      >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_KSU_SUSFS_SUS_MOUNT=y'                     >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_KSU_SUSFS_SUS_KSTAT=y'                     >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n'                 >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_KSU_SUSFS_SPOOF_UNAME=y'                   >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_KSU_SUSFS_ENABLE_LOG=y'                    >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y'        >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y'   >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_KSU_SUSFS_OPEN_REDIRECT=y'                 >> "$FRAGMENT"
-          printf '%s\n' 'CONFIG_KSU_SUSFS_SUS_SU=n'                        >> "$FRAGMENT"
+
+          # ── KernelSU ────────────────────────────────────────────────────
+          printf '%s\n' \
+            'CONFIG_KSU=y' \
+            'CONFIG_KSU_KPROBES_HOOK=n' \
+            >> "$FRAGMENT"
+
+          # ── Filesystem ──────────────────────────────────────────────────
+          printf '%s\n' \
+            'CONFIG_TMPFS_XATTR=y' \
+            'CONFIG_TMPFS_POSIX_ACL=y' \
+            >> "$FRAGMENT"
+
+          # ── Networking / TCP ────────────────────────────────────────────
+          printf '%s\n' \
+            'CONFIG_IP_NF_TARGET_TTL=y' \
+            'CONFIG_IP6_NF_TARGET_HL=y' \
+            'CONFIG_IP6_NF_MATCH_HL=y' \
+            'CONFIG_TCP_CONG_ADVANCED=y' \
+            'CONFIG_TCP_CONG_BBR=y' \
+            'CONFIG_NET_SCH_FQ=y' \
+            'CONFIG_TCP_CONG_BIC=n' \
+            'CONFIG_TCP_CONG_WESTWOOD=n' \
+            'CONFIG_TCP_CONG_HTCP=n' \
+            'CONFIG_BPF_STREAM_PARSER=y' \
+            >> "$FRAGMENT"
+
+          # ── Netfilter / ipset ────────────────────────────────────────────
+          printf '%s\n' \
+            'CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y' \
+            'CONFIG_NETFILTER_XT_SET=y' \
+            'CONFIG_IP_SET=y' \
+            'CONFIG_IP_SET_MAX=65534' \
+            'CONFIG_IP_SET_BITMAP_IP=y' \
+            'CONFIG_IP_SET_BITMAP_IPMAC=y' \
+            'CONFIG_IP_SET_BITMAP_PORT=y' \
+            'CONFIG_IP_SET_HASH_IP=y' \
+            'CONFIG_IP_SET_HASH_IPMARK=y' \
+            'CONFIG_IP_SET_HASH_IPPORT=y' \
+            'CONFIG_IP_SET_HASH_IPPORTIP=y' \
+            'CONFIG_IP_SET_HASH_IPPORTNET=y' \
+            'CONFIG_IP_SET_HASH_IPMAC=y' \
+            'CONFIG_IP_SET_HASH_MAC=y' \
+            'CONFIG_IP_SET_HASH_NETPORTNET=y' \
+            'CONFIG_IP_SET_HASH_NET=y' \
+            'CONFIG_IP_SET_HASH_NETNET=y' \
+            'CONFIG_IP_SET_HASH_NETPORT=y' \
+            'CONFIG_IP_SET_HASH_NETIFACE=y' \
+            'CONFIG_IP_SET_LIST_SET=y' \
+            'CONFIG_IP6_NF_NAT=y' \
+            'CONFIG_IP6_NF_TARGET_MASQUERADE=y' \
+            >> "$FRAGMENT"
+
+          # ── SuSFS ────────────────────────────────────────────────────────
+          printf '%s\n' \
+            'CONFIG_KSU_SUSFS=y' \
+            'CONFIG_KSU_SUSFS_SUS_PATH=y' \
+            'CONFIG_KSU_SUSFS_SUS_MOUNT=y' \
+            'CONFIG_KSU_SUSFS_SUS_KSTAT=y' \
+            'CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n' \
+            'CONFIG_KSU_SUSFS_SPOOF_UNAME=y' \
+            'CONFIG_KSU_SUSFS_ENABLE_LOG=y' \
+            'CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y' \
+            'CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y' \
+            'CONFIG_KSU_SUSFS_OPEN_REDIRECT=y' \
+            'CONFIG_KSU_SUSFS_SUS_SU=n' \
+            >> "$FRAGMENT"
 
           echo "📝 Fragment written:" && cat "$FRAGMENT"
-          echo "FRAGMENT=$FRAGMENT" >> $GITHUB_ENV
+          echo "FRAGMENT=$FRAGMENT" >> "$GITHUB_ENV"
 
-      # ----------------------------------------------------------------
-      # 12. Build with Kleaf
-      # ----------------------------------------------------------------
-      - name: Build kernel (Kleaf / Bazel)
+      # -----------------------------------------------------------------------
+      # 12. Build kernel with Kleaf / Bazel
+      # -----------------------------------------------------------------------
+      - name: Build kernel
         run: |
           cd "$KERNEL_ROOT"
           mkdir -p "$DIST_DIR"
+
           BUILD_FLAGS=(
             "--config=fast"
             "--lto=none"
@@ -369,36 +456,41 @@ jobs:
           )
           [[ "${{ github.event.inputs.debug }}" == "true" ]] \
             && BUILD_FLAGS+=("--verbose_failures" "--sandbox_debug")
+
           START=$SECONDS
-          echo "🔨 Starting Kleaf build (KowSU r$KSU_VERSION)..."
+          echo "🔨 Starting Kleaf build — KowSU r$KSU_VERSION | SuSFS $SUSFS_VERSION"
+
           tools/bazel run "${BUILD_FLAGS[@]}" \
             //common:kernel_aarch64_dist \
             -- --destdir="$DIST_DIR"
-          echo "BUILD_TIME=$((SECONDS - START))s" >> $GITHUB_ENV
+
+          echo "BUILD_TIME=$((SECONDS - START))s" >> "$GITHUB_ENV"
           echo "✅ Build complete in $((SECONDS - START))s"
           ls -lh "$DIST_DIR"
 
-      # ----------------------------------------------------------------
+      # -----------------------------------------------------------------------
       # 13. Verify build artifacts
-      # ----------------------------------------------------------------
+      # -----------------------------------------------------------------------
       - name: Verify build artifacts
         run: |
           set -e
+
           if [ -f "$DIST_DIR/Image" ]; then
             echo "✅ Image ($(du -h "$DIST_DIR/Image" | cut -f1))"
           else
             echo "❌ Missing: Image"
             exit 1
           fi
+
           if [ -f "$DIST_DIR/vmlinux" ]; then
             strings "$DIST_DIR/vmlinux" | grep -q "CONFIG_KSU=y" \
               && echo "✅ CONFIG_KSU confirmed in vmlinux" \
-              || echo "⚠️ CONFIG_KSU not found in vmlinux — check fragment injection"
+              || echo "⚠️  CONFIG_KSU not found in vmlinux — check fragment injection"
           fi
 
-      # ----------------------------------------------------------------
-      # 14. Package (AnyKernel3)
-      # ----------------------------------------------------------------
+      # -----------------------------------------------------------------------
+      # 14. Package into AnyKernel3 zip
+      # -----------------------------------------------------------------------
       - name: Package (AnyKernel3)
         run: |
           FULL_VER="${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}-${{ github.event.inputs.android_version }}-${{ github.event.inputs.os_patch_level }}"
@@ -414,13 +506,13 @@ jobs:
           zip -r9 "../$ZIP_NAME" .
           cd ..
 
-          echo "KERNEL_ZIP=$ZIP_NAME"     >> $GITHUB_ENV
-          echo "KERNEL_VERSION=$FULL_VER" >> $GITHUB_ENV
+          echo "KERNEL_ZIP=$ZIP_NAME"     >> "$GITHUB_ENV"
+          echo "KERNEL_VERSION=$FULL_VER" >> "$GITHUB_ENV"
           echo "📦 Packaged: $ZIP_NAME"
 
-      # ----------------------------------------------------------------
+      # -----------------------------------------------------------------------
       # 15. Write changelog
-      # ----------------------------------------------------------------
+      # -----------------------------------------------------------------------
       - name: Write changelog
         if: github.event.inputs.create_release == 'true'
         run: |
@@ -428,41 +520,48 @@ jobs:
           CF="changelogs/CHANGELOG-kowsu.md"
           K_SHORT=$(git -C "$KERNEL_ROOT/common" log -1 --format="%h" 2>/dev/null || echo "unknown")
           K_MSG=$(  git -C "$KERNEL_ROOT/common" log -1 --format="%s"  2>/dev/null || echo "unknown")
-          cat > "$CF" << EOF
-          # Build Changelog — KowSU
-          **Build:** #${{ github.run_number }}
-          **Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')
-          **Kernel:** $KERNEL_VERSION
-          **KowSU version:** r$KSU_VERSION
-          **SuSFS:** Enabled ($SUSFS_VERSION)
-          **Build time:** $BUILD_TIME
+
+          cat > "$CF" <<EOF
+          # Build Changelog — KowSU + SuSFS
+
+          **Date:**        $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          **Kernel:**      $KERNEL_VERSION
+          **KowSU:**       r$KSU_VERSION
+          **SuSFS:**       $SUSFS_VERSION (Enabled)
+          **Build time:**  $BUILD_TIME
+
           ## Components
+
           | Component  | Commit                  | Message           |
           |------------|-------------------------|-------------------|
           | KowSU      | \`$KSU_COMMIT_SHORT\`   | $KSU_COMMIT_MSG   |
           | GKI common | \`$K_SHORT\`            | $K_MSG            |
           | SuSFS      | \`$SUSFS_COMMIT_SHORT\` | $SUSFS_COMMIT_MSG |
-          ## Devices
+
+          ## Supported Devices
+
           - Xiaomi Popsicle (2509FPN0BC)
           EOF
-          echo "CHANGELOG_FILE=$CF" >> $GITHUB_ENV
 
-      # ----------------------------------------------------------------
-      # 16. Upload artifact
-      # ----------------------------------------------------------------
+          echo "CHANGELOG_FILE=$CF" >> "$GITHUB_ENV"
+
+      # -----------------------------------------------------------------------
+      # 16. Upload build artifact
+      # -----------------------------------------------------------------------
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-kowsu-${{ github.run_number }}
+          name: kernel-kowsu
           path: |
             ${{ env.KERNEL_ZIP }}
             ${{ env.CHANGELOG_FILE }}
           if-no-files-found: error
 
-  # ------------------------------------------------------------------
-  # create_release
-  # ------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # create_release — publish a GitHub Release from the build artifact
+  # ---------------------------------------------------------------------------
   create_release:
+    name: Create Release
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -475,49 +574,64 @@ jobs:
 
     env:
       SUSFS_VERSION: ${{ needs.build.outputs.susfs_version }}
+      KSU_VERSION:   ${{ needs.build.outputs.ksu_version }}
 
     steps:
+
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: kernel-kowsu-${{ github.run_number }}
+          name: kernel-kowsu
           path: release-assets
 
-      - name: Resolve SuSFS build counter
+      # Derive the release tag by counting prior releases for this SuSFS version
+      - name: Resolve release tag
         run: |
-          SUSFS_BUILD_NUM=$(gh release list --repo "${{ github.repository }}" --limit 100 \
+          SUSFS_BUILD_NUM=$(gh release list \
+            --repo "${{ github.repository }}" \
+            --limit 100 \
             | grep -c "${SUSFS_VERSION}-r" || true)
           SUSFS_BUILD_NUM=$(( ${SUSFS_BUILD_NUM:-0} + 1 ))
-          echo "SUSFS_BUILD_NUM=$SUSFS_BUILD_NUM"                      >> $GITHUB_ENV
-          echo "SUSFS_BUILD_TAG=${SUSFS_VERSION}-r${SUSFS_BUILD_NUM}" >> $GITHUB_ENV
-          echo "📌 SuSFS build tag: ${SUSFS_VERSION}-r${SUSFS_BUILD_NUM}"
+
+          echo "SUSFS_BUILD_NUM=$SUSFS_BUILD_NUM"                      >> "$GITHUB_ENV"
+          echo "SUSFS_BUILD_TAG=${SUSFS_VERSION}-r${SUSFS_BUILD_NUM}" >> "$GITHUB_ENV"
+          echo "📌 Release tag: ${SUSFS_VERSION}-r${SUSFS_BUILD_NUM}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release
         run: |
-          cd release-assets
-          ls -lh
+          cd release-assets && ls -lh
+
+          RELEASE_TITLE="GKI ${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }} | KowSU r${KSU_VERSION} | SuSFS ${SUSFS_BUILD_TAG}"
+
           RELEASE_NOTES="**Build Date:** $(date -u '+%Y-%m-%d %H:%M UTC')
           **Kernel:** ${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}-${{ github.event.inputs.os_patch_level }}
-          **Variant:** KowSU
+          **KowSU:** r${KSU_VERSION}
           **SuSFS:** ✅ Enabled (${SUSFS_BUILD_TAG})
+
+          ### Sources
+          - **KowSU:** https://github.com/KOWX712/KernelSU
+          - **SuSFS:** https://gitlab.com/simonpunk/susfs4ksu
+
           ### Supported Devices
           - Xiaomi Popsicle (2509FPN0BC)
+
           ### Installation
-          Flash the ZIP in Kernel Flasher, or extract \`Image\` and patch \`boot.img\` manually."
+          Flash the ZIP via Kernel Flasher, or extract \`Image\` and patch \`boot.img\` manually."
+
           gh release create "${SUSFS_BUILD_TAG}" \
-            --title "GKI ${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }} KowSU ${SUSFS_BUILD_TAG} Build #${{ github.run_number }}" \
-            --notes "$RELEASE_NOTES" \
-            --repo "${{ github.repository }}" \
+            --title  "$RELEASE_TITLE" \
+            --notes  "$RELEASE_NOTES" \
+            --repo   "${{ github.repository }}" \
             ./*.zip ./*.md 2>/dev/null \
-            || gh release create "${SUSFS_BUILD_TAG}" \
-               --title "GKI ${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }} KowSU ${SUSFS_BUILD_TAG} Build #${{ github.run_number }}" \
-               --notes "$RELEASE_NOTES" \
-               --repo "${{ github.repository }}" \
-               ./*.zip
+          || gh release create "${SUSFS_BUILD_TAG}" \
+            --title  "$RELEASE_TITLE" \
+            --notes  "$RELEASE_NOTES" \
+            --repo   "${{ github.repository }}" \
+            ./*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
