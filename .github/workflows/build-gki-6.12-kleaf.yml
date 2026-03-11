@@ -281,36 +281,21 @@ jobs:
           echo "🚫 Removing GKI protected exports..."
           rm -f "$COMMON_DIR/android/abi_gki_protected_exports_"* || true
 
-          # ── Version spoof (3 patches) ─────────────────────────────────────
-          # 60: mkcompile_h — hardcode COMPILE_BY, COMPILE_HOST, COMPILER
-          sed -i \
-            's|#define LINUX_COMPILE_BY.*|#define LINUX_COMPILE_BY\t"kleaf"|' \
-            "$COMMON_DIR/scripts/mkcompile_h"
-          sed -i \
-            's|#define LINUX_COMPILE_HOST.*|#define LINUX_COMPILE_HOST\t"build-host"|' \
-            "$COMMON_DIR/scripts/mkcompile_h"
-          sed -i \
-            's|#define LINUX_COMPILER.*|#define LINUX_COMPILER\t\t"Android (14043575, +pgo, +bolt, +lto, +mlgo, based on r536225) clang version 19.0.1 (https://android.googlesource.com/toolchain/llvm-project b3a530ec6537146650e42be89f1089e9a3588460), LLD 19.0.1"|' \
-            "$COMMON_DIR/scripts/mkcompile_h"
-          echo "✅ mkcompile_h patched"
+          # ── Version spoof (3 patches from repo root) ─────────────────────
+          # Patches live at the root of the workflow repo (popsicle branch),
+          # checked out at workflow-repo/ by step 6.
+          PATCHES_REPO="$GITHUB_WORKSPACE/workflow-repo"
 
-          # 61: setlocalversion — comment out real echo, output fixed string
-          sed -i \
-            's|^echo "\$res"|#echo "$res"\necho "-android16-5-g6928909e3148-abogki444322847-4k"|' \
-            "$COMMON_DIR/scripts/setlocalversion"
-          echo "✅ setlocalversion patched"
+          echo "📋 Applying 60_scripts_mkcompile_h.patch..."
+          patch -p1 -d "$COMMON_DIR" < "$PATCHES_REPO/60_scripts_mkcompile_h.patch"             || { echo "❌ mkcompile_h patch failed!" && exit 1; }
 
-          # 62: init/Makefile — hardcode build-version and build-timestamp
-          sed -i \
-            's|^build-version = \$(or.*|#build-version = $(or $(KBUILD_BUILD_VERSION), $(build-version-auto))|' \
-            "$COMMON_DIR/init/Makefile"
-          sed -i \
-            's|^build-timestamp = \$(or.*|#build-timestamp = $(or $(KBUILD_BUILD_TIMESTAMP), $(build-timestamp-auto))\nbuild-version = 1\nbuild-timestamp = "Fri Sep 12 04:57:41 UTC 2025"|' \
-            "$COMMON_DIR/init/Makefile"
-          sed -i \
-            's|^include/generated/utsversion.h: build-version-auto = \$(shell.*|#include/generated/utsversion.h: build-version-auto = $(shell $(srctree)/$(src)/build-version)\ninclude/generated/utsversion.h: build-version-auto = 1|' \
-            "$COMMON_DIR/init/Makefile"
-          echo "✅ init/Makefile patched"
+          echo "📋 Applying 61_scripts_setlocalversion.patch..."
+          patch -p1 -d "$COMMON_DIR" < "$PATCHES_REPO/61_scripts_setlocalversion.patch"             || { echo "❌ setlocalversion patch failed!" && exit 1; }
+
+          echo "📋 Applying 62_init_Makefile.patch..."
+          patch -p1 -d "$COMMON_DIR" < "$PATCHES_REPO/62_init_Makefile.patch"             || { echo "❌ init/Makefile patch failed!" && exit 1; }
+
+          echo "✅ All 3 version spoof patches applied"
 
           # Patch SUBLEVEL in Makefile to match our target sublevel
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ github.event.inputs.sub_level }}/" \
