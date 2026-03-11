@@ -69,7 +69,7 @@ jobs:
     timeout-minutes: 300
 
     outputs:
-      susfs_version: ${{ steps.clone_susfs.outputs.susfs_version }}
+      susfs_version: ${{ steps.susfs_version.outputs.susfs_version }}
       ksu_version:   ${{ steps.ksu_version.outputs.ksu_version }}
 
     env:
@@ -188,7 +188,6 @@ jobs:
       # 6. Clone SuSFS and yapixel/kernel_patches
       # -----------------------------------------------------------------------
       - name: Clone SuSFS and kernel_patches
-        id: clone_susfs
         run: |
           SUSFS_PATH="$KERNEL_ROOT/../susfs4ksu"
           PATCHES_PATH="$KERNEL_ROOT/../kernel_patches"
@@ -223,25 +222,35 @@ jobs:
               https://github.com/yapixel/kernel_patches.git "$PATCHES_PATH"
           fi
 
-          # ── Capture SuSFS version from header ───────────────────────────
-          SUSFS_VERSION=$(grep -oP 'SUSFS_VERSION "\K[^"]+' \
-            "$SUSFS_PATH/kernel_patches/include/linux/susfs.h" 2>/dev/null \
-            || git -C "$SUSFS_PATH" log -1 --format='%h')
-
-          # ── Export to subsequent steps and jobs ──────────────────────────
+          # ── Export paths and commit metadata ─────────────────────────────
           {
             echo "SUSFS_DIR=$(realpath "$SUSFS_PATH")"
             echo "PATCHES_DIR=$(realpath "$PATCHES_PATH")"
-            echo "SUSFS_VERSION=$SUSFS_VERSION"
             echo "SUSFS_COMMIT_SHORT=$(git -C "$SUSFS_PATH" log -1 --format='%h')"
             echo "SUSFS_COMMIT_MSG=$(git -C "$SUSFS_PATH" log -1 --format='%s')"
           } >> "$GITHUB_ENV"
 
+      # -----------------------------------------------------------------------
+      # 7. Resolve and display SuSFS version
+      # -----------------------------------------------------------------------
+      - name: Resolve SuSFS version
+        id: susfs_version
+        run: |
+          SUSFS_VERSION=$(grep -oP 'SUSFS_VERSION "\K[^"]+' \
+            "$SUSFS_DIR/kernel_patches/include/linux/susfs.h" 2>/dev/null \
+            || git -C "$SUSFS_DIR" log -1 --format='%h')
+
+          echo "SUSFS_VERSION=$SUSFS_VERSION" >> "$GITHUB_ENV"
           echo "susfs_version=$SUSFS_VERSION" >> "$GITHUB_OUTPUT"
-          echo "📌 SuSFS version: $SUSFS_VERSION"
+
+          echo "┌─────────────────────────────────────────┐"
+          echo "│  SuSFS Version : $SUSFS_VERSION"
+          echo "│  Commit        : $SUSFS_COMMIT_SHORT"
+          echo "│  Message       : $SUSFS_COMMIT_MSG"
+          echo "└─────────────────────────────────────────┘"
 
       # -----------------------------------------------------------------------
-      # 7. Integrate KowSU via upstream setup.sh
+      # 8. Integrate KowSU via upstream setup.sh
       #    setup.sh clones KernelSU, wires drivers/kernelsu, and updates
       #    Makefile/Kconfig — no manual symlink needed.
       # -----------------------------------------------------------------------
@@ -256,7 +265,7 @@ jobs:
           echo "✅ KowSU integrated"
 
       # -----------------------------------------------------------------------
-      # 8. Capture KowSU version and commit metadata
+      # 9. Capture KowSU version and commit metadata
       # -----------------------------------------------------------------------
       - name: Capture KowSU version info
         id: ksu_version
@@ -279,7 +288,7 @@ jobs:
           echo "📌 KowSU version: r$KSU_VERSION"
 
       # -----------------------------------------------------------------------
-      # 9. Apply SuSFS patches
+      # 10. Apply SuSFS patches
       # -----------------------------------------------------------------------
       - name: Apply SuSFS patches
         run: |
@@ -305,7 +314,7 @@ jobs:
             || { echo "❌ KSU SuSFS patch failed!"; exit 1; }
 
       # -----------------------------------------------------------------------
-      # 10. Apply miscellaneous source fixes
+      # 11. Apply miscellaneous source fixes
       # -----------------------------------------------------------------------
       - name: Apply source fixes
         run: |
@@ -361,7 +370,7 @@ jobs:
           fi
 
       # -----------------------------------------------------------------------
-      # 11. Write defconfig fragment
+      # 12. Write defconfig fragment
       #     Kleaf injects this on top of gki_defconfig via
       #     --defconfig_fragment at build time.
       # -----------------------------------------------------------------------
@@ -441,7 +450,7 @@ jobs:
           echo "FRAGMENT=$FRAGMENT" >> "$GITHUB_ENV"
 
       # -----------------------------------------------------------------------
-      # 12. Build kernel with Kleaf / Bazel
+      # 13. Build kernel with Kleaf / Bazel
       # -----------------------------------------------------------------------
       - name: Build kernel
         run: |
@@ -469,7 +478,7 @@ jobs:
           ls -lh "$DIST_DIR"
 
       # -----------------------------------------------------------------------
-      # 13. Verify build artifacts
+      # 14. Verify build artifacts
       # -----------------------------------------------------------------------
       - name: Verify build artifacts
         run: |
@@ -489,7 +498,7 @@ jobs:
           fi
 
       # -----------------------------------------------------------------------
-      # 14. Package into AnyKernel3 zip
+      # 15. Package into AnyKernel3 zip
       # -----------------------------------------------------------------------
       - name: Package (AnyKernel3)
         run: |
@@ -511,7 +520,7 @@ jobs:
           echo "📦 Packaged: $ZIP_NAME"
 
       # -----------------------------------------------------------------------
-      # 15. Write changelog
+      # 16. Write changelog
       # -----------------------------------------------------------------------
       - name: Write changelog
         if: github.event.inputs.create_release == 'true'
@@ -546,7 +555,7 @@ jobs:
           echo "CHANGELOG_FILE=$CF" >> "$GITHUB_ENV"
 
       # -----------------------------------------------------------------------
-      # 16. Upload build artifact
+      # 17. Upload build artifact
       # -----------------------------------------------------------------------
       - name: Upload artifact
         uses: actions/upload-artifact@v4
