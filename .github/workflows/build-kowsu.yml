@@ -240,7 +240,13 @@ jobs:
             "$SUSFS_DIR/kernel_patches/include/linux/susfs.h" 2>/dev/null \
             || git -C "$SUSFS_DIR" log -1 --format='%h')
 
-          echo "SUSFS_VERSION=$SUSFS_VERSION" >> "$GITHUB_ENV"
+          SUSFS_VER_CLEAN="${SUSFS_VERSION#v}"
+
+          {
+            echo "SUSFS_VERSION=$SUSFS_VERSION"
+            echo "SUSFS_VER_CLEAN=$SUSFS_VER_CLEAN"
+          } >> "$GITHUB_ENV"
+
           echo "susfs_version=$SUSFS_VERSION" >> "$GITHUB_OUTPUT"
 
           echo "┌─────────────────────────────────────────┐"
@@ -511,7 +517,7 @@ jobs:
           [ -f "$DIST_DIR/dtb.img" ] && cp "$DIST_DIR/dtb.img" AnyKernel3/
 
           cd AnyKernel3 && rm -rf .git .github
-          ZIP_NAME="AK3-${FULL_VER}-kowsu-susfs-${SUSFS_VERSION}-r1.zip"
+          ZIP_NAME="AK3-${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}-KowSU-r${KSU_VERSION}-SUSFS-${SUSFS_VER_CLEAN}.zip"
           zip -r9 "../$ZIP_NAME" .
           cd ..
 
