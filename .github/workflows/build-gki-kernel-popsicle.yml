@@ -238,18 +238,23 @@ jobs:
             cd ..
           fi
 
-          # 2. Smart Sync SuSFS (gki-android16-6.12 branch)
+          # 2. Smart Sync SuSFS (gki-android16-6.12-dev, pinned to known-good commit)
           if [ -d "susfs4ksu/.git" ]; then
             echo "♻️ Existing SuSFS tree found. Factory resetting and updating..."
             cd susfs4ksu
-            git fetch --depth=1 origin gki-android16-6.12
-            git reset --hard origin/gki-android16-6.12
+            git fetch --unshallow 2>/dev/null || true
+            git fetch origin
+            git reset --hard 315af1ddffcfc946cdcc548fd1a51a737e4e9001
             git clean -fdx
             cd ..
           else
-            echo "📥 Downloading SuSFS source (gki-android16-6.12)..."
-            git clone --depth=1 --branch=gki-android16-6.12 \
+            echo "📥 Downloading SuSFS source (gki-android16-6.12-dev)..."
+            git clone --depth=1 --branch=gki-android16-6.12-dev \
               https://gitlab.com/simonpunk/susfs4ksu susfs4ksu
+            git -C susfs4ksu fetch --unshallow 2>/dev/null || true
+            git -C susfs4ksu fetch origin
+            git -C susfs4ksu reset --hard 315af1ddffcfc946cdcc548fd1a51a737e4e9001
+            git -C susfs4ksu clean -fdx
           fi
 
       - name: Store Commit Info (Workflow, Kernel, SuSFS)
@@ -367,7 +372,7 @@ jobs:
 
           cd kernel
 
-          # Apply core SuSFS patch (android16-6.12 variant)
+          # Apply core SuSFS patch (android16-6.12)
           VARIANT_SUSFS_PATCH="../.github/patches/${{ matrix.variant }}/50_add_susfs_in_gki-android16-6.12.patch"
           DEFAULT_SUSFS_PATCH="../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
 
