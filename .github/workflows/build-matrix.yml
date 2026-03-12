@@ -108,7 +108,6 @@ jobs:
           echo "└─────────────────────────────────────────┘"
 
       - name: Resolve release tag
-      - name: Resolve release tag
         id: release_tag
         run: |
           SUSFS_VERSION="${{ steps.susfs_version.outputs.susfs_version }}"
