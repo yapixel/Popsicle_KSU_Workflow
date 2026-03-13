@@ -2,7 +2,7 @@ name: Build GKI Kernel — KSU Matrix + SuSFS
 
 # =============================================================================
 # Build System : Kleaf / Bazel (repo-synced toolchain)
-# Variants     : KowSU | MKSU | ReSukiSU — parallel matrix
+# Variants     : KowSU | KernelSU (tiann) | ReSukiSU — parallel matrix
 # Target       : Xiaomi Popsicle (2509FPN0BC) — android16 / 6.12
 # =============================================================================
 
@@ -83,9 +83,6 @@ jobs:
             --branch="gki-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}-dev" \
             https://gitlab.com/simonpunk/susfs4ksu susfs4ksu
 
-          git -C susfs4ksu fetch --unshallow 2>/dev/null || true
-          git -C susfs4ksu fetch origin || true
-          git -C susfs4ksu reset --hard 315af1ddffcfc946cdcc548fd1a51a737e4e9001
           git -C susfs4ksu clean -fdx
 
       - name: Resolve SuSFS version
@@ -141,7 +138,7 @@ jobs:
       matrix:
         exclude:
           - variant:
-              name: mksu
+              name: tiannksu
         variant:
           # ── KowSU ──────────────────────────────────────────────────────
           - name:           kowsu
@@ -155,18 +152,20 @@ jobs:
             setup_url:      https://raw.githubusercontent.com/KOWX712/KernelSU/master/kernel/setup.sh
             susfs_core:     from_susfs4ksu
             susfs_patch:    kowsu/10_enable_susfs_for_ksu.patch
+            susfs_patch_src: patches_dir
 
-          # ── MKSU — disabled (patches not working) ──────────────────────
-          - name:           mksu
-            label:          MKSU
-            enabled:        false
-            ksu_owner:      5ec1cff
+          # ── KernelSU (official / tiann) ────────────────────────────────
+          - name:           tiannksu
+            label:          KernelSU
+            enabled:        true
+            ksu_owner:      tiann
             ksu_repo:       KernelSU
             ksu_branch:     main
             ksu_ver_branch: main
-            setup_url:      https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh
-            susfs_core:     from_yapixel
-            susfs_patch:    mksu/10_enable_susfs_for_ksu.patch
+            setup_url:      https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh
+            susfs_core:     from_susfs4ksu
+            susfs_patch:    10_enable_susfs_for_ksu.patch
+            susfs_patch_src: susfs4ksu
 
           # ── ReSukiSU ───────────────────────────────────────────────────
           - name:           resukisu
@@ -179,6 +178,7 @@ jobs:
             setup_url:      https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh
             susfs_core:     from_susfs4ksu
             susfs_patch:    ""
+            susfs_patch_src: ""
 
     env:
       SUSFS_VERSION:      ${{ needs.setup.outputs.susfs_version }}
@@ -320,12 +320,6 @@ jobs:
               https://gitlab.com/simonpunk/susfs4ksu "$SUSFS_PATH"
           fi
 
-          # Pin to known-good commit
-          echo "📌 Pinning SuSFS to 315af1ddffcf..."
-          git -C "$SUSFS_PATH" fetch --unshallow 2>/dev/null || true
-          git -C "$SUSFS_PATH" fetch origin || true
-          git -C "$SUSFS_PATH" reset --hard 315af1ddffcfc946cdcc548fd1a51a737e4e9001
-          git -C "$SUSFS_PATH" clean -fdx
 
           # ── kernel_patches ───────────────────────────────────────────────
           if [ -d "$PATCHES_PATH/.git" ]; then
@@ -357,7 +351,7 @@ jobs:
 
       # -----------------------------------------------------------------------
       # 8. Capture KSU version
-      #    KowSU / MKSU : get_ksuver.sh against backslashxx/KernelSU
+      #    KowSU / KernelSU (tiann) : get_ksuver.sh against backslashxx/KernelSU
       #    ReSukiSU     : local commit count formula — 40000 + count - 2815
       # -----------------------------------------------------------------------
       - name: Capture ${{ matrix.variant.label }} version info
@@ -376,7 +370,7 @@ jobs:
             KSU_VERSION=$((40000 + KSU_COUNT - 2815))
             echo "📌 ReSukiSU version: r$KSU_VERSION (count=$KSU_COUNT)"
           else
-            # ── KowSU / MKSU — helper script against backslashxx/KernelSU ─
+            # ── KowSU / KernelSU (tiann) — helper script against backslashxx/KernelSU ─
             KSU_VERSION=$(./sh/get_ksuver.sh \
               "backslashxx" \
               "KernelSU" \
@@ -420,10 +414,10 @@ jobs:
             patch -p1 -F 3 < "$PATCH_NAME" \
               || echo "⚠️  Core SuSFS patch failed or was already applied"
           else
-            # from_yapixel — mksu provides its own core patch
-            cp "$PATCHES_DIR/mksu/$PATCH_NAME" "$COMMON_DIR/"
+            # from_susfs4ksu fallback (should not be reached with current variants)
+            cp "$SUSFS_DIR/kernel_patches/$PATCH_NAME" "$COMMON_DIR/"
             cd "$COMMON_DIR"
-            echo "📋 Applying $PATCH_NAME (from yapixel/mksu)..."
+            echo "📋 Applying $PATCH_NAME (from susfs4ksu fallback)..."
             patch -p1 -F 3 < "$PATCH_NAME" \
               || echo "⚠️  Core SuSFS patch failed or was already applied"
           fi
@@ -431,9 +425,15 @@ jobs:
           # ── KSU enablement patch (skip if empty — resukisu is SuSFS-ready) ─
           if [ -n "${{ matrix.variant.susfs_patch }}" ]; then
             cd "$COMMON_DIR/KernelSU"
-            echo "📋 Applying ${{ matrix.variant.susfs_patch }}..."
-            cp "$PATCHES_DIR/${{ matrix.variant.susfs_patch }}" ./
-            patch -p1 < "$(basename "${{ matrix.variant.susfs_patch }}")" \
+            PATCH_FILE="$(basename "${{ matrix.variant.susfs_patch }}")"
+            if [ "${{ matrix.variant.susfs_patch_src }}" = "susfs4ksu" ]; then
+              echo "📋 Applying $PATCH_FILE (from susfs4ksu)..."
+              cp "$SUSFS_DIR/kernel_patches/$PATCH_FILE" ./
+            else
+              echo "📋 Applying ${{ matrix.variant.susfs_patch }} (from patches_dir)..."
+              cp "$PATCHES_DIR/${{ matrix.variant.susfs_patch }}" ./
+            fi
+            patch -p1 < "$PATCH_FILE" \
               || { echo "❌ KSU SuSFS patch failed!"; exit 1; }
           else
             echo "ℹ️  ${{ matrix.variant.label }} is SuSFS-ready — skipping enablement patch"
@@ -701,12 +701,12 @@ jobs:
           | Variant    | ZIP |
           |------------|-----|
           | KowSU      | \`AK3-${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}-KowSU-r*-SUSFS-*.zip\` |
-          | MKSU       | \`AK3-${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}-MKSU-r*-SUSFS-*.zip\` |
+          | KernelSU   | \`AK3-${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}-KernelSU-r*-SUSFS-*.zip\` |
           | ReSukiSU   | \`AK3-${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}-ReSukiSU-r*-SUSFS-*.zip\` |
 
           ### Sources
           - **KowSU:** https://github.com/KOWX712/KernelSU
-          - **MKSU:** https://github.com/5ec1cff/KernelSU
+          - **KernelSU:** https://github.com/tiann/KernelSU
           - **ReSukiSU:** https://github.com/ReSukiSU/ReSukiSU
           - **SuSFS:** https://gitlab.com/simonpunk/susfs4ksu
 
