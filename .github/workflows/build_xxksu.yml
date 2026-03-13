@@ -41,6 +41,8 @@ permissions:
 env:
   CCACHE_DIR: ${{ github.workspace }}/.ccache
   KERNEL_ROOT: ${{ github.workspace }}/kernel-repo
+  SCRIPTS_REPO: https://github.com/TheSillyOk/sh
+  KSU_BRANCH: master
 
 jobs:
   build:
@@ -199,18 +201,21 @@ jobs:
           grep -q "kernelsu" drivers/Kconfig || \
             sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
-          cd KernelSU/kernel
-          git fetch --unshallow 2>&1 \
-            || echo "⚠️  Could not unshallow — version count may be approximate"
+          KSU_COMMIT=$(git -C KernelSU log -1 --format='%h')
+          echo "KSU_COMMIT=$KSU_COMMIT" >> $GITHUB_ENV
+          echo "KSU_COMMIT_MSG=$(git -C KernelSU log -1 --format='%s')" >> $GITHUB_ENV
 
-          BASE_VERSION=30000
-          COMMIT_COUNT=$(/usr/bin/git rev-list --count HEAD)
-          KSU_VERSION=$(expr $COMMIT_COUNT + $BASE_VERSION)
+      - name: Collect xxKSU Version
+        id: ksu
+        run: |
+          git clone --depth=1 "${{ env.SCRIPTS_REPO }}" sh
 
-          echo "KSU_VERSION=$KSU_VERSION" >> $GITHUB_ENV
-          echo "KSU_COMMIT=$(git log -1 --format='%h')" >> $GITHUB_ENV
-          echo "KSU_COMMIT_MSG=$(git log -1 --format='%s')" >> $GITHUB_ENV
-          echo "📌 xxKSU version: r$KSU_VERSION"
+          KSU_VER=$(./sh/get_ksuver.sh "backslashxx" "KernelSU" "${{ env.KSU_BRANCH }}" \
+            || echo "unknown")
+
+          echo "ksu_ver=${KSU_VER}" >> "$GITHUB_OUTPUT"
+          echo "KSU_VERSION=${KSU_VER}" >> "$GITHUB_ENV"
+          echo "xxKSU ver  : r${KSU_VER}"
 
       - name: Apply Patches & Source Fixes
         run: |
