@@ -129,7 +129,6 @@ jobs:
   build:
     name: Build — ${{ matrix.variant.label }}
     needs: setup
-    if: matrix.variant.enabled != false
     runs-on: ubuntu-latest
     timeout-minutes: 300
 
@@ -140,22 +139,20 @@ jobs:
       fail-fast: false
       matrix:
         variant:
-          # ── KowSU ──────────────────────────────────────────────────────
-          - name:           kowsu
-            label:          KowSU
-            enabled:        false
-            ksu_owner:      KOWX712
-            ksu_repo:       KernelSU
-            ksu_branch:     master
-            setup_url:      https://raw.githubusercontent.com/KOWX712/KernelSU/master/kernel/setup.sh
-            susfs_core:     from_susfs4ksu
-            susfs_patch:    kowsu/10_enable_susfs_for_ksu.patch
-            susfs_patch_src: patches_dir
+          # ── KowSU — comment/uncomment block below to disable/enable ──
+#          - name:           kowsu
+#            label:          KowSU
+#            ksu_owner:      KOWX712
+#            ksu_repo:       KernelSU
+#            ksu_branch:     master
+#            setup_url:      https://raw.githubusercontent.com/KOWX712/KernelSU/master/kernel/setup.sh
+#            susfs_core:     from_susfs4ksu
+#            susfs_patch:    kowsu/10_enable_susfs_for_ksu.patch
+#            susfs_patch_src: patches_dir
 
-          # ── KernelSU (official / tiann) ────────────────────────────────
+          # ── KernelSU (official / tiann) — comment/uncomment to disable/enable ─
           - name:           tiannksu
             label:          KernelSU
-            enabled:        true
             ksu_owner:      tiann
             ksu_repo:       KernelSU
             ksu_branch:     main
@@ -164,10 +161,9 @@ jobs:
             susfs_patch:    10_enable_susfs_for_ksu.patch
             susfs_patch_src: susfs4ksu
 
-          # ── ReSukiSU ───────────────────────────────────────────────────
+          # ── ReSukiSU — comment/uncomment to disable/enable ─────────────
           - name:           resukisu
             label:          ReSukiSU
-            enabled:        true
             ksu_owner:      ReSukiSU
             ksu_repo:       ReSukiSU
             ksu_branch:     main
