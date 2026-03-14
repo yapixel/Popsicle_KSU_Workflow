@@ -549,23 +549,23 @@ jobs:
 
           # ── KernelSU configs ─────────────────────────────────────────────
           cat >> "$DEFCONFIG" << 'KSUEOF'
-          CONFIG_KSU=y
-          CONFIG_KSU_KPROBES_HOOK=n
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_SU=n
-          CONFIG_DEBUG_INFO_BTF=n
-          CONFIG_DEBUG_INFO_BTF_MODULES=n
-          CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847-4k"
-          KSUEOF
+CONFIG_KSU=y
+CONFIG_KSU_KPROBES_HOOK=n
+CONFIG_KSU_SUSFS=y
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_KSTAT=y
+CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
+CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+CONFIG_KSU_SUSFS_ENABLE_LOG=y
+CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_SUS_SU=n
+CONFIG_DEBUG_INFO_BTF=n
+CONFIG_DEBUG_INFO_BTF_MODULES=n
+CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847-4k"
+KSUEOF
 
           make ARCH=arm64 LLVM=1 LLVM_IAS=1 LD=ld.lld O=out gki_defconfig
           make ARCH=arm64 LLVM=1 LLVM_IAS=1 LD=ld.lld O=out olddefconfig
@@ -618,9 +618,9 @@ jobs:
           fi
 
           if [ -f "$KERNEL_DIR/out/vmlinux" ]; then
-            strings "$KERNEL_DIR/out/vmlinux" | grep -q "CONFIG_KSU=y" \
-              && echo "✅ CONFIG_KSU confirmed in vmlinux" \
-              || echo "⚠️  CONFIG_KSU not found in vmlinux"
+            nm "$KERNEL_DIR/out/vmlinux" 2>/dev/null | grep -q "ksu_" \
+              && echo "✅ KernelSU symbols confirmed in vmlinux" \
+              || echo "⚠️  KernelSU symbols not found in vmlinux"
           fi
 
       # -----------------------------------------------------------------------
