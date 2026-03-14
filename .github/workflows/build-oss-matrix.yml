@@ -224,7 +224,7 @@ jobs:
             build-essential python3 python3-pip \
             rsync curl wget git zip unzip aria2 \
             libncurses-dev gawk dwarves zstd pahole \
-            ccache kmod
+            ccache kmod libdw-dev
 
           echo "✅ Host dependencies installed"
 
@@ -549,23 +549,23 @@ jobs:
 
           # ── KernelSU configs ─────────────────────────────────────────────
           cat >> "$DEFCONFIG" << 'KSUEOF'
-          CONFIG_KSU=y
-          CONFIG_KSU_KPROBES_HOOK=n
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_SU=n
-          CONFIG_DEBUG_INFO_BTF=n
-          CONFIG_DEBUG_INFO_BTF_MODULES=n
-          CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847-4k"
-          KSUEOF
+CONFIG_KSU=y
+CONFIG_KSU_KPROBES_HOOK=n
+CONFIG_KSU_SUSFS=y
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_KSTAT=y
+CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
+CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+CONFIG_KSU_SUSFS_ENABLE_LOG=y
+CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_SUS_SU=n
+CONFIG_DEBUG_INFO_BTF=n
+CONFIG_DEBUG_INFO_BTF_MODULES=n
+CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847-4k"
+KSUEOF
 
           make ARCH=arm64 LLVM=1 LLVM_IAS=1 LD=ld.lld O=out gki_defconfig
           make ARCH=arm64 LLVM=1 LLVM_IAS=1 LD=ld.lld O=out olddefconfig
