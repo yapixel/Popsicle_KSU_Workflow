@@ -56,11 +56,17 @@ jobs:
           # Legacy full install command: (most packages are already built into the GitHub Actions environment, so trimmed down)
           #sudo apt-get install -y --no-install-recommends curl bison flex make binutils git perl gcc python3 python-is-python3 bc libssl-dev libelf-dev libdw-dev zip unzip ccache
           
-          echo "Cloning source repository..."
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/android_gki_kernel_common/archive/refs/heads/android16-6.12-2025-06.zip -o common.zip && 
-          unzip -q common.zip && 
-          mv "android_gki_kernel_common-android16-6.12-2025-06" common &&
-          rm -rf common.zip &
+          #echo "Cloning source repository..."
+          #aria2c -s16 -x16 -k1M https://github.com/cctv18/android_gki_kernel_common/archive/refs/heads/android16-6.12-2025-06.zip -o common.zip && 
+          #unzip -q common.zip && 
+          #mv "android_gki_kernel_common-android16-6.12-2025-06" common &&
+          #rm -rf common.zip &
+          
+          echo "Cloning source repository from official AOSP..."
+          aria2c -s16 -x16 -k1M https://android.googlesource.com/kernel/common/+archive/refs/heads/android16-6.12-2025-06.tar.gz -o common.tar.gz &&
+          mkdir common &&
+          tar -xzf common.tar.gz -C common &&
+          rm -rf common.tar.gz &
           
           echo "Cloning llvm-clang19 toolchain..." &&
           mkdir -p clang19 &&
