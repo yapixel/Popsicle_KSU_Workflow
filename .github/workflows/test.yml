@@ -1,4 +1,4 @@
-name: Build 6.12.23 GKI Kernel with xxKSU hookless
+name: (New Xiaomi/OPPO-OnePlus-Realme Universal) 6.12.23 GKI Kernel Test
 
 env:
   TZ: Asia/Shanghai
@@ -10,6 +10,20 @@ env:
 on:
   workflow_dispatch:
     inputs:
+      ksu_type:
+        description: 'KernelSU variant (ReSukiSU / KSU (upstream) / No built-in KSU, default: ReSukiSU)'
+        required: true
+        type: choice
+        default: 'resukisu'
+        options:
+          - 'resukisu'
+          - 'ksu'
+          - 'none'
+      susfs_enable:
+        description: 'Enable SuSFS (enhances mount hiding; may slightly increase power consumption; disable if upstream update causes instability or if not needed)'
+        required: true
+        type: boolean
+        default: 'true'
       kernel_suffix:
         description: 'Kernel suffix (leave blank for default; do not prefix with a hyphen; avoid spaces or reserved characters that could break commands)'
         required: false
@@ -40,77 +54,158 @@ jobs:
           sudo apt update &&
           sudo apt-get install -y --no-install-recommends binutils python-is-python3 libssl-dev libelf-dev libdw-dev &
 
-          echo "Cloning source repository from official AOSP..."
-          aria2c -s16 -x16 -k1M https://android.googlesource.com/kernel/common/+archive/refs/heads/android16-6.12-2025-06.tar.gz -o common.tar.gz &&
-          mkdir common &&
-          tar -xzf common.tar.gz -C common &&
-          rm -rf common.tar.gz &
+          echo "Cloning source repository (Google official)..."
+          mkdir -p common &&
+          aria2c -s16 -x16 -k1M \
+            "https://android.googlesource.com/kernel/common/+archive/refs/heads/android16-6.12-2025-06.tar.gz" \
+            -o common.tar.gz &&
+          tar xzf common.tar.gz -C common &&
+          rm -f common.tar.gz &
 
-          echo "Cloning llvm-clang19 toolchain..." &&
+          echo "Fetching official clang-r536225 toolchain (Google official)..."
           mkdir -p clang19 &&
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip -o clang.zip &&
-          unzip -q clang.zip -d clang19 &&
-          rm -rf clang.zip &
+          aria2c -s16 -x16 -k1M \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android16-6.12-2025-06/clang-r536225.tar.gz" \
+            -o clang.tar.gz &&
+          tar xzf clang.tar.gz -C clang19 &&
+          rm -f clang.tar.gz &
 
-          echo "Cloning Rust 1.82.0 toolchain..." &&
+          echo "Fetching official kernel build-tools (Google official)..."
+          git clone --depth=1 \
+            https://android.googlesource.com/kernel/prebuilts/build-tools \
+            build-tools-repo &&
+          mkdir -p build-tools &&
+          cp -r build-tools-repo/linux-x86/bin build-tools/bin &&
+          rm -rf build-tools-repo &
+
+          echo "Cloning Rust 1.82.0 toolchain..."
           mkdir -p rust &&
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip &&
+          aria2c -s16 -x16 -k1M \
+            https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip \
+            -o rust.zip &&
           unzip -q rust.zip -d rust &&
           rm -rf rust.zip &
 
-          echo "Cloning build tools..." &&
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip &&
-          unzip -q build-tools.zip &&
-          rm -rf build-tools.zip &
-
           wait
-          echo "All sources and llvm-clang19 toolchain initialized!"
+          echo "All sources and toolchain components initialized!"
+
+          # Auto-detect clang layout from googlesource tarball.
+          # Use $GITHUB_WORKSPACE absolute path — avoids any cd subshell persistence issues.
+          KW="$GITHUB_WORKSPACE/kernel_workspace"
+          echo "=== Detecting clang19 layout ==="
+          ls -la "$KW/clang19/"
+          if [ -x "$KW/clang19/bin/clang" ]; then
+            CLANG_BIN="$KW/clang19/bin"
+            CLANG_LIB="$KW/clang19/lib"
+            echo "Layout: flat (clang19/bin/clang)"
+          elif [ -x "$KW/clang19/clang-r536225/bin/clang" ]; then
+            CLANG_BIN="$KW/clang19/clang-r536225/bin"
+            CLANG_LIB="$KW/clang19/clang-r536225/lib"
+            echo "Layout: subdirectory (clang19/clang-r536225/bin/clang)"
+          else
+            echo "ERROR: Could not locate clang binary. Full search:"
+            find "$KW/clang19" -name "clang" -type f 2>/dev/null || echo "no clang binary found"
+            exit 1
+          fi
+          echo "CLANG_BIN=$CLANG_BIN" >> $GITHUB_ENV
+          echo "CLANG_LIB=$CLANG_LIB" >> $GITHUB_ENV
+          echo "Resolved clang: $CLANG_BIN/clang"
+          $CLANG_BIN/clang --version | head -n1
+
           echo "Stripping -dirty suffix..."
-          for f in common/scripts/setlocalversion; do
+          for f in kernel_workspace/common/scripts/setlocalversion; do
             sed -i 's/ -dirty//g' "$f"
             sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"
           done
 
 
-      - name: Setup KernelSU (xxKSU)
+      - name: Add KernelSU
         id: ksu_version
         run: |
-          cd kernel_workspace/common
-          rm -rf KernelSU drivers/kernelsu
-          git clone --depth=1 --branch=master \
-            https://github.com/backslashxx/KernelSU.git KernelSU
-          ln -sf ../KernelSU/kernel drivers/kernelsu
-          grep -q "kernelsu" drivers/Makefile || \
-            echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
-          grep -q "kernelsu" drivers/Kconfig || \
-            sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          cd kernel_workspace
+          if [[ ${{ github.event.inputs.ksu_type }} == "resukisu" ]]; then
+            echo "Configuring ReSukiSU..."
+            curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s main
+            echo 'CONFIG_KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%@cctv18"' >> ./common/arch/arm64/configs/gki_defconfig
+            cd ./KernelSU
+            KSU_VERSION=$(expr $(git rev-list --count main) + 30700 2>/dev/null || echo 114514)
+            echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
+            echo "ksuver=$KSU_VERSION" >> $GITHUB_OUTPUT
+          elif [[ ${{ github.event.inputs.ksu_type }} == "ksu" ]]; then
+            echo "Configuring upstream KernelSU (tiann/KernelSU)..."
+            curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/refs/heads/main/kernel/setup.sh" | bash -s main
+            cd ./KernelSU
+            KSU_VERSION=$(expr $(curl -sI "https://api.github.com/repos/tiann/KernelSU/commits?sha=main&per_page=1" | grep -i "link:" | sed -n 's/.*page=\([0-9]*\)>; rel="last".*/\1/p') "+" 30000)
+            echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
+            echo "ksuver=$KSU_VERSION" >> $GITHUB_OUTPUT
+            sed -i "s/DKSU_VERSION=16/DKSU_VERSION=${KSU_VERSION}/" kernel/Kbuild
+          else
+            echo "No built-in KernelSU selected, skipping KernelSU configuration..."
+          fi
 
-          cd ..
-          git clone --depth=1 https://github.com/TheSillyOk/sh.git sh
-          KSU_VER=$(./sh/get_ksuver.sh "backslashxx" "KernelSU" "master" || echo "unknown")
-          echo "KSUVER=${KSU_VER}" >> $GITHUB_ENV
-          echo "ksuver=${KSU_VER}" >> $GITHUB_OUTPUT
-          echo "xxKSU ver: r${KSU_VER}"
+      - name: Apply KernelSU & SuSFS patches
+        if: inputs.susfs_enable
+        run: |
+          cd kernel_workspace
+          if [[ ${{ github.event.inputs.ksu_type }} != "none" ]]; then
+            echo "Applying SuSFS patches..."
+            git clone --depth=1 https://github.com/cctv18/susfs4oki.git susfs4ksu -b oki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}
+            cp ./susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch ./common/
+            cp ./susfs4ksu/kernel_patches/fs/* ./common/fs/
+            cp ./susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
+            cd ./common
+            patch -p1 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch || true
+            cd ..
+          else
+            echo "No built-in KernelSU selected, skipping SuSFS configuration..."
+          fi
+          if [[ ${{ github.event.inputs.ksu_type }} == "ksu" ]]; then
+            echo "Applying patch for upstream KernelSU (tiann/KernelSU)..."
+            cp ./susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/
+            cd ./KernelSU
+            patch -p1 < 10_enable_susfs_for_ksu.patch || true
+          fi
+
+      - name: Add SuSFS config options
+        if: inputs.susfs_enable
+        run: |
+          cd kernel_workspace
+          echo "CONFIG_KSU_SUSFS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> ./common/arch/arm64/configs/gki_defconfig
 
       - name: Add KSU & other config options
         run: |
           cd kernel_workspace
           echo "CONFIG_KSU=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_EXTRAS=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_ALLOWLIST_WORKAROUND=n" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_DEBUG=n" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_KPROBES_HOOK=n" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_LSM_SECURITY_HOOKS=" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_THRONE_TRACKER_ALWAYS_THREADED=y" >> ./common/arch/arm64/configs/gki_defconfig
+          if [[ "${{ github.event.inputs.susfs_enable }}" == "false" ]]; then
+            echo "CONFIG_KSU_SUSFS=n" >> ./common/arch/arm64/configs/gki_defconfig
+          fi
+          # Add support for Mountify (backslashxx/mountify) module
           echo "CONFIG_TMPFS_XATTR=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_TMPFS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          # Enable O2 compiler optimization
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> ./common/arch/arm64/configs/gki_defconfig
+          # Disable defconfig check
           sed -i 's/check_defconfig//' ./common/build.config.gki
+          # Skip unnecessary installation of uapi standard headers to usr/include; saves build time
           echo "CONFIG_HEADERS_INSTALL=n" >> ./common/arch/arm64/configs/gki_defconfig
+          # Rust config for 6.12 kernel
           echo "CONFIG_RUST=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_ANDROID_BINDER_IPC_RUST=m" >> ./common/arch/arm64/configs/gki_defconfig
-          
+
       - name: Enable enhanced network feature configs
         run: |
           cd kernel_workspace
@@ -142,6 +237,7 @@ jobs:
 
       - name: Add BBR and other congestion control algorithms
         run: |
+          echo "Adding BBR and other congestion control algorithms..."
           cd kernel_workspace
           echo "CONFIG_TCP_CONG_ADVANCED=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_TCP_CONG_BBR=y" >> ./common/arch/arm64/configs/gki_defconfig
@@ -156,12 +252,15 @@ jobs:
       - name: Set build name / kernel version suffix
         run: |
           cd kernel_workspace
+          echo "Replacing kernel version suffix..."
           if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
+            echo "Current kernel version suffix: ${{ github.event.inputs.kernel_suffix }}"
             for f in ./common/scripts/setlocalversion; do
               sed -i "\$s|echo \"\\\$res\"|echo \"-${{ github.event.inputs.kernel_suffix }}\"|" "$f"
             done
             sudo sed -i 's/-4k/-${{ github.event.inputs.KERNEL_SUFFIX }}/g' ./common/arch/arm64/configs/gki_defconfig
           else
+            echo "Current kernel version suffix: ${{ env.KERNEL_NAME }}"
             for f in ./common/scripts/setlocalversion; do
               sed -i "\$s|echo \"\\\$res\"|echo \"-${{ env.KERNEL_NAME }}\"|" "$f"
             done
@@ -169,16 +268,17 @@ jobs:
           fi
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
           echo "CONFIG_LOCALVERSION_AUTO=n" >> ./common/arch/arm64/configs/gki_defconfig
-           
+
       - name: Build kernel
         run: |
           WORKDIR="$(pwd)"
-          export PATH="$WORKDIR/kernel_workspace/clang19/bin:$PATH"
+          # CLANG_BIN / CLANG_LIB resolved at install time and persisted via GITHUB_ENV
+          export PATH="${{ env.CLANG_BIN }}:$PATH"
           export PATH="$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
           export PATH="$WORKDIR/kernel_workspace/rust/bin:$PATH"
-          export CLANG_DIR="$WORKDIR/kernel_workspace/clang19/bin"
-          CLANG_VERSION="$($CLANG_DIR/clang --version | head -n 1)"
-          LLD_VERSION="$($CLANG_DIR/ld.lld --version | head -n 1)"
+          export CLANG_DIR="${{ env.CLANG_BIN }}"
+          CLANG_VERSION="$(${{ env.CLANG_BIN }}/clang --version | head -n 1)"
+          LLD_VERSION="$(${{ env.CLANG_BIN }}/ld.lld --version | head -n 1)"
           RUSTC_VERSION="$(rustc -V 2>/dev/null | head -n1)"
           BINDGEN_VERSION="$(bindgen --version 2>/dev/null | head -n1)"
           echo "Compiler info:"
@@ -189,16 +289,61 @@ jobs:
           pahole_version=$(pahole --version 2>/dev/null | head -n1); [ -z "$pahole_version" ] && echo "pahole: not installed" || echo "pahole version: $pahole_version"
 
           cd kernel_workspace/common
+          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfakestat.so
+          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfaketimeMT.so
+          chmod 777 ./*.so
+          export FAKESTAT="2025-09-12 04:57:41"
+          export FAKETIME="@2025-09-12 04:57:41"
+          echo "FAKESTAT=$FAKESTAT" >> $GITHUB_ENV
+          echo "FAKETIME=$FAKETIME" >> $GITHUB_ENV
+          SO_DIR=$(pwd)
+          export PRELOAD_LIBS="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
+          export REAL_CLANG_PATH="${{ env.CLANG_BIN }}/clang"
+          # Create CC (compiler) wrapper
+          echo '#!/bin/bash' > cc-wrapper
+          echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> cc-wrapper
+          echo 'export FAKESTAT="'$FAKESTAT'"' >> cc-wrapper
+          echo 'export FAKETIME="'$FAKETIME'"' >> cc-wrapper
+          echo '$REAL_CLANG_PATH "$@"' >> cc-wrapper
+          # Create LD (linker) wrapper
+          echo '#!/bin/bash' > ld-wrapper
+          echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> ld-wrapper
+          echo 'export FAKESTAT="'$FAKESTAT'"' >> ld-wrapper
+          echo 'export FAKETIME="'$FAKETIME'"' >> ld-wrapper
+          echo 'ld.lld "$@"' >> ld-wrapper
 
+          # Test whether the time hijack wrappers are working correctly
+          echo "--- [Wrapper Test] Creating generic time hijack test script ---"
+          echo '#!/bin/bash' > test-wrapper.sh
+          echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> test-wrapper.sh
+          echo 'export FAKESTAT="'$FAKESTAT'"' >> test-wrapper.sh
+          echo 'export FAKETIME="'$FAKETIME'"' >> test-wrapper.sh
+          echo 'echo ">>> Wrapper internal environment check complete."' >> test-wrapper.sh
+          echo 'exec "$@"' >> test-wrapper.sh
+          chmod +x test-wrapper.sh
+          echo "--- [Wrapper Test] Testing (date) command ---"
+          ./test-wrapper.sh date
+          echo "--- [Wrapper Test] Testing (stat) command ---"
+          ./test-wrapper.sh stat ./Makefile
+          echo "--- [Wrapper Test] Test complete ---"
+          chmod +x cc-wrapper ld-wrapper
+          echo "--- Pre-build environment time: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
+          echo "--- Pre-build environment file timestamp: ---"
+          LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
+
+          # 6.12 kernel make core configuration:
+          # 1. Remap physical paths
           COMMON_REAL_PATH=$(pwd -P)
           ROOT_REAL_PATH=$(dirname "$COMMON_REAL_PATH")
           KCFLAGS+=" -fdebug-prefix-map=$ROOT_REAL_PATH=."
           KCFLAGS+=" -fmacro-prefix-map=$ROOT_REAL_PATH=."
           KCFLAGS+=" -ffile-prefix-map=$ROOT_REAL_PATH=."
+          # 2. Declare Rust and related tools
           export RUSTC="rustc"
           export BINDGEN="bindgen"
           export CC="clang"
-          export LIBCLANG_PATH="$WORKDIR/kernel_workspace/clang19/lib"
+          export LIBCLANG_PATH="${{ env.CLANG_LIB }}"
+          # 3. Configure KCFLAGS
           KCFLAGS+=" -no-canonical-prefixes"
           KCFLAGS+=" -O2"
           KCFLAGS+=" -pipe"
@@ -206,6 +351,7 @@ jobs:
           KCFLAGS+=" -fno-stack-protector"
           KCFLAGS+=" -D__ANDROID_COMMON_KERNEL__"
           export KCFLAGS
+          # 4. Configure other tools and options
           export HOSTCC=clang
           export LD="ld.lld"
           export HOSTLD=ld.lld
@@ -214,18 +360,25 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export LD=ld.lld HOSTLD=ld.lld AR=llvm-ar NM=llvm-nm AS=clang READELF=llvm-readelf
           export OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump OBJSIZE=llvm-size STRIP=llvm-strip
+          # 5. Run official environment setup script before building
           source "./_setup_env.sh" 2>/dev/null || true
+          # 6. Spoof build identity and timestamp
           export KBUILD_BUILD_USER=kleaf
           export KBUILD_BUILD_HOST=build-host
           export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
 
+          # Clean up unnecessary runtimes in parallel with the kernel build
           sudo rm -rf /usr/share/dotnet &
           sudo rm -rf /usr/local/lib/android &
           sudo rm -rf /opt/ghc &
           sudo rm -rf /opt/hostedtoolcache/CodeQL &
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="clang" LD="ld.lld" OBJCOPY="llvm-objcopy" O=out gki_defconfig &&
-          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="clang" LD="ld.lld" OBJCOPY="llvm-objcopy" O=out Image
+          export CC="$(pwd)/cc-wrapper" && export LD="$(pwd)/ld-wrapper" &&
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" OBJCOPY="llvm-objcopy" O=out Image
 
+          echo "--- Post-build environment time: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
+          echo "--- Post-build environment file timestamp: ---"
+          LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
           echo "Kernel build complete!"
           echo "Post-build disk space:"
           df -h
@@ -242,7 +395,13 @@ jobs:
             echo "Kernel image not found; build may have failed"
             exit 1
           fi
-          KSU_TYPENAME="xxKSU"
+          if [[ ${{ github.event.inputs.ksu_type }} == "resukisu" ]]; then
+            KSU_TYPENAME="ReSukiSU"
+          elif [[ ${{ github.event.inputs.ksu_type }} == "ksu" ]]; then
+            KSU_TYPENAME="KSU"
+          else
+            KSU_TYPENAME="none"
+          fi
           if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
             AK3_NAME=AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_${{ github.event.inputs.kernel_suffix }}.zip
           else
@@ -268,6 +427,7 @@ jobs:
           echo "Kernel Ver: $FULL_VERSION" >> ./ak3.log
           echo "KSU Branch: ${KSU_TYPENAME}" >> ./ak3.log
           echo "KSU Ver: ${KSUVER}" >> ./ak3.log
+          echo "susfs: ${{ github.event.inputs.susfs_enable }}" >> ./ak3.log
           echo "IPset+BBR: enabled" >> ./ak3.log
           zip -z ../$AK3_NAME < ./ak3.log
 
@@ -284,7 +444,7 @@ jobs:
       contents: write
       packages: write
       actions: read
-      
+
     steps:
       - name: Download ZIP artifact
         uses: actions/download-artifact@v8
@@ -312,9 +472,15 @@ jobs:
           echo "TIME_FORM=$TIME_FORM" >> $GITHUB_ENV
           TAG_HEAD="OPPO-OPlus-Realme-build"
           echo "TAG_HEAD=$TAG_HEAD" >> $GITHUB_ENV
-          KSU_TYPENAME="xxKSU"
+          if [[ ${{ github.event.inputs.ksu_type }} == "resukisu" ]]; then
+            KSU_TYPENAME="ReSukiSU"
+          elif [[ ${{ github.event.inputs.ksu_type }} == "ksu" ]]; then
+            KSU_TYPENAME="KSU"
+          else
+            KSU_TYPENAME="No built-in KSU"
+          fi
           echo "KSU_TYPENAME=$KSU_TYPENAME" >> $GITHUB_ENV
-         
+
       - name: Create release
         id: create_release
         uses: softprops/action-gh-release@v2.6.1
@@ -327,6 +493,7 @@ jobs:
             - Build time: ${{ env.TIME_FORM }}
             - Device: OPPO/OnePlus/Realme/Xiaomi Snapdragon 8 Elite Gen5 universal ${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }} kernel (based on AOSP official android16-6.12-2025-06 source branch)
             - KSU variant: ${{ env.KSU_TYPENAME }}
+            - SuSFS support: ${{ github.event.inputs.susfs_enable }}
             - Enhanced network features: enabled
             - BBR/Brutal and other congestion control algorithms: enabled
             - KSU upstream manager download: [KernelSU](https://github.com/tiann/KernelSU/releases)
