@@ -1,4 +1,4 @@
-name: Build 6.12.23 GKI Kernel with xxKSU
+name: Build 6.12.23 GKI Kernel xxKSU
 
 env:
   TZ: Asia/Shanghai
@@ -106,6 +106,18 @@ jobs:
             echo "ksuver=none" >> $GITHUB_OUTPUT
           fi
 
+      - name: Apply xxKSU manual hook patch
+        if: ${{ github.event.inputs.ksu_type == 'xxksu' }}
+        run: |
+          cd kernel_workspace/common
+          curl -LSs https://raw.githubusercontent.com/yapixel/kernel_patches/refs/heads/dev/syscall_hook/scope-min-hooks-v1.9.patch -o manual-hook.patch
+          patch -p1 < manual-hook.patch || {
+            echo "FAILED: Manual hook patch did not apply cleanly"
+            find . -name "*.rej" | xargs -r grep -l "" && cat $(find . -name "*.rej") || true
+            exit 1
+          }
+          echo "SUCCESS: Manual hook patch applied"
+
       - name: Apply module check bypass
         run: |
           TARGET_FILE="$(pwd)/kernel_workspace/common/kernel/module/version.c"
@@ -123,6 +135,8 @@ jobs:
           cd kernel_workspace
           echo "CONFIG_KSU=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_KPROBES_HOOK=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_MANUAL_HOOK=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_TMPFS_XATTR=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_TMPFS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> ./common/arch/arm64/configs/gki_defconfig
@@ -340,6 +354,7 @@ jobs:
           echo "KSU Ver: ${KSUVER}" >> ./ak3.log
           echo "susfs: disabled" >> ./ak3.log
           echo "module bypass: enabled" >> ./ak3.log
+          echo "manual hook patch: enabled" >> ./ak3.log
           echo "IPset+BBR: enabled" >> ./ak3.log
           zip -z ../$AK3_NAME < ./ak3.log
 
@@ -403,8 +418,10 @@ jobs:
             - Build time: ${{ env.TIME_FORM }}
             - Device: OPPO/OnePlus/Realme/Xiaomi Snapdragon 8 Elite Gen5 universal ${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }} kernel (based on AOSP official android16-6.12-2025-06 source branch)
             - KSU variant: ${{ env.KSU_TYPENAME }}
+            - KSU version: ${{ needs.build.outputs.ksuver }}
             - SuSFS support: disabled
             - Module check bypass: enabled
+            - Manual hook patch: enabled
             - Enhanced network features: enabled
             - BBR/Brutal and other congestion control algorithms: enabled
             - KSU upstream manager download: [KernelSU](https://github.com/tiann/KernelSU/releases)
