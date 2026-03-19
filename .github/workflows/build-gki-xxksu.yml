@@ -1,4 +1,4 @@
-name: Build 6.12.23 GKI Kernel
+name: Build 6.12.23 GKI Kernel with xxKSU
 
 env:
   TZ: Asia/Shanghai
