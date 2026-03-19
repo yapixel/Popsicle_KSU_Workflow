@@ -110,14 +110,67 @@ jobs:
         if: ${{ github.event.inputs.ksu_type == 'xxksu' }}
         run: |
           cd kernel_workspace/common
+
+          # fs/open.c, fs/stat.c, kernel/reboot.c patch cleanly - apply those only
           curl -LSs https://raw.githubusercontent.com/yapixel/kernel_patches/refs/heads/dev/syscall_hook/scope-min-hooks-v1.9.patch -o manual-hook.patch
-          patch -p1 < manual-hook.patch || {
-            echo "FAILED: Manual hook patch did not apply cleanly"
-            find . -name "*.rej" | xargs -r grep -l "" && cat $(find . -name "*.rej") || true
+          patch -p1 --forward \
+            --include="fs/open.c" \
+            --include="fs/stat.c" \
+            --include="kernel/reboot.c" \
+            < manual-hook.patch || {
+            echo "FAILED: Partial patch (open/stat/reboot) did not apply cleanly"
+            find . -name "*.rej" | while read r; do echo "=== $r ==="; cat "$r"; done || true
             exit 1
           }
-          echo "SUCCESS: Manual hook patch applied"
+          echo "SUCCESS: fs/open.c, fs/stat.c, kernel/reboot.c patched"
 
+          # fs/exec.c: do_execve_file is absent in this tree; insert hooks manually
+          # 1. Insert extern declaration before do_execve()
+          if ! grep -q "ksu_handle_execveat" fs/exec.c; then
+            sed -i '/^int do_execve(struct filename \*filename,/{
+              i #ifdef CONFIG_KSU
+              i __attribute__((hot))
+              i extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,
+              i \t\t\t\tvoid *argv, void *envp, int *flags);
+              i #endif
+              i\
+            }' fs/exec.c
+            echo "SUCCESS: ksu_handle_execveat extern inserted before do_execve"
+          else
+            echo "SKIP: ksu_handle_execveat extern already present"
+          fi
+
+          # 2. Insert hook call inside do_execve(), before the return
+          if ! grep -q "ksu_handle_execveat.*AT_FDCWD.*filename.*argv.*envp" fs/exec.c; then
+            sed -i '/^int do_execve(struct filename \*filename,/,/^}/{
+              /return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);/{
+                i #ifdef CONFIG_KSU
+                i \tksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
+                i #endif
+              }
+            }' fs/exec.c
+            echo "SUCCESS: ksu_handle_execveat hook call inserted in do_execve"
+          else
+            echo "SKIP: ksu_handle_execveat hook call already present"
+          fi
+
+          # 3. Insert hook call inside compat_do_execve() if present
+          if grep -q "compat_do_execve" fs/exec.c; then
+            if ! grep -q "ksu_handle_execveat.*AT_FDCWD.*filename.*argv.*envp" fs/exec.c; then
+              sed -i '/^static int compat_do_execve(struct filename \*filename,/,/^}/{
+                /return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);/{
+                  i #ifdef CONFIG_KSU // 32-bit ksud and 32-on-64 support
+                  i \tksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
+                  i #endif
+                }
+              }' fs/exec.c
+              echo "SUCCESS: ksu_handle_execveat hook call inserted in compat_do_execve"
+            fi
+          else
+            echo "SKIP: compat_do_execve not present in this tree"
+          fi
+
+          echo "All manual hook patches applied successfully"
       - name: Apply module check bypass
         run: |
           TARGET_FILE="$(pwd)/kernel_workspace/common/kernel/module/version.c"
