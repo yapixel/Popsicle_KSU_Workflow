@@ -1,4 +1,4 @@
-name: (New Xiaomi/OPPO-OnePlus-Realme Universal) 6.12.23 GKI Kernel
+name: (New Xiaomi/OPPO-OnePlus-Realme Universal) 6.12.23 GKI Kernel test
 
 env:
   TZ: Asia/Shanghai
