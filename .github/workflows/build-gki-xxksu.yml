@@ -119,57 +119,13 @@ jobs:
           # All three are always manual regardless of kprobes.
           # -----------------------------------------------------------------------
 
-          echo "--- #5: fs/exec.c — do_execve hook (sucompat) ---"
-          python3 - <<'PYEOF'
-          import re, sys
-
-          path = "fs/exec.c"
-          src = open(path).read()
-
-          decl = (
-              "\n#ifdef CONFIG_KSU\n"
-              "__attribute__((hot))\n"
-              "extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,\n"
-              "\t\t\t\tvoid *argv, void *envp, int *flags);\n"
-              "#endif\n"
-          )
-          call_native = (
-              "#ifdef CONFIG_KSU\n"
-              "\tksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);\n"
-              "#endif\n\t"
-          )
-          call_compat = (
-              "#ifdef CONFIG_KSU\n"
-              "\tksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);\n"
-              "#endif\n\t"
-          )
-
-          if "ksu_handle_execveat" in src:
-              print("fs/exec.c: do_execve hook already present, skipping.")
-              sys.exit(0)
-
-          # Insert declaration before do_execve definition
-          src = re.sub(
-              r'(^int do_execve\(struct filename \*filename,)',
-              decl + r'\1',
-              src, count=1, flags=re.MULTILINE
-          )
-          # Insert call in do_execve body, before return do_execveat_common
-          src = re.sub(
-              r'(\treturn do_execveat_common\(AT_FDCWD, filename, argv, envp, 0\);)',
-              call_native + r'\1',
-              src, count=1
-          )
-          # Insert call in compat_do_execve body, before return do_execveat_common
-          src = re.sub(
-              r'(\treturn do_execveat_common\(AT_FDCWD, filename, argv, envp, 0\);)',
-              call_compat + r'\1',
-              src, count=0
-          )
-
-          open(path, "w").write(src)
-          print("fs/exec.c: do_execve hook applied.")
-          PYEOF
+          echo "--- #5: fs/exec.c — inject ksu.h include for execveat declaration ---"
+          if grep -q "ksu_handle_execveat" fs/exec.c; then
+            echo "fs/exec.c: ksu_handle_execveat already declared, skipping."
+          else
+            sed -i '1s|^|#ifdef CONFIG_KSU\n#include <linux/ksu.h>\n#endif\n|' fs/exec.c
+            echo "fs/exec.c: ksu.h include injected."
+          fi
 
           echo "--- #5: fs/open.c — sys_faccessat hook (sucompat) ---"
           python3 - <<'PYEOF'
@@ -344,6 +300,7 @@ jobs:
           cd kernel_workspace
           echo "CONFIG_KSU=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_KPROBES_HOOK=n" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_LSM_SECURITY_HOOKS=n" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_TMPFS_XATTR=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_TMPFS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
