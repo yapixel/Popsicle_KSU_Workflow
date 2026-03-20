@@ -25,51 +25,54 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Install dependencies + initialize source repo and llvm-clang19 toolchain
+      - name: Install dependencies
         run: |
-          rm -rf kernel_workspace
-          mkdir kernel_workspace
-          cd kernel_workspace
+          sudo apt-mark hold firefox
+          sudo apt-mark hold libc-bin
+          sudo apt purge man-db
+          sudo rm -rf /var/lib/man-db/auto-update
+          sudo apt update
+          sudo apt-get install -y --no-install-recommends binutils python-is-python3 libssl-dev libelf-dev libdw-dev
+
+      - name: Clone kernel source
+        run: |
+          mkdir -p kernel_workspace
           echo "Current repo: $GITHUB_REPOSITORY"
           echo "Current branch: $GITHUB_REF_NAME"
-
-          sudo apt-mark hold firefox &&
-          sudo apt-mark hold libc-bin &&
-          sudo apt purge man-db &&
-          sudo rm -rf /var/lib/man-db/auto-update &&
-          sudo apt update &&
-          sudo apt-get install -y --no-install-recommends binutils python-is-python3 libssl-dev libelf-dev libdw-dev &
-
-          echo "Cloning source repository..."
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/android_gki_kernel_common/archive/refs/heads/android16-6.12-2025-06.zip -o common.zip &&
-          unzip -q common.zip &&
-          mv "android_gki_kernel_common-android16-6.12-2025-06" common &&
-          rm -rf common.zip &
-
-          echo "Cloning llvm-clang19 toolchain..." &&
-          mkdir -p clang19 &&
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip -o clang.zip &&
-          unzip -q clang.zip -d clang19 &&
-          rm -rf clang.zip &
-
-          echo "Cloning Rust 1.82.0 toolchain..." &&
-          mkdir -p rust &&
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip &&
-          unzip -q rust.zip -d rust &&
-          rm -rf rust.zip &
-
-          echo "Cloning build tools..." &&
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip &&
-          unzip -q build-tools.zip &&
-          rm -rf build-tools.zip &
-
-          wait
-          echo "All sources and llvm-clang19 toolchain initialized!"
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/android_gki_kernel_common/archive/refs/heads/android16-6.12-2025-06.zip -o common.zip
+          unzip -q common.zip
+          mv "android_gki_kernel_common-android16-6.12-2025-06" kernel_workspace/common
+          rm -f common.zip
           echo "Stripping -dirty suffix..."
-          for f in common/scripts/setlocalversion; do
+          for f in kernel_workspace/common/scripts/setlocalversion; do
             sed -i 's/ -dirty//g' "$f"
             sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"
           done
+
+      - name: Clone toolchains
+        run: |
+          cd kernel_workspace
+          TOOLCHAIN_BASE="https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225"
+
+          echo "Cloning llvm-clang19..."
+          mkdir -p clang19
+          aria2c -s16 -x16 -k1M "$TOOLCHAIN_BASE/clang-r536225.zip" -o clang.zip
+          unzip -q clang.zip -d clang19
+          rm -f clang.zip &
+
+          echo "Cloning Rust 1.82.0..."
+          mkdir -p rust
+          aria2c -s16 -x16 -k1M "$TOOLCHAIN_BASE/rust.zip" -o rust.zip
+          unzip -q rust.zip -d rust
+          rm -f rust.zip &
+
+          echo "Cloning build tools..."
+          aria2c -s16 -x16 -k1M "$TOOLCHAIN_BASE/build-tools.zip" -o build-tools.zip
+          unzip -q build-tools.zip
+          rm -f build-tools.zip &
+
+          wait
+          echo "All toolchains ready!"
 
       - name: Add ReSukiSU
         id: ksu_version
