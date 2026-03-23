@@ -125,7 +125,7 @@ jobs:
             https://github.com/cctv18/android_gki_kernel_common/archive/refs/heads/android16-6.12-2025-06.zip \
             -o common.zip
           unzip -q common.zip
-          mv "android_kernel_common_oneplus_sm8850-oneplus-sm8850_v_16.0.0_oneplus_15" common
+          mv "android16-6.12-2025-06" common
           rm -f common.zip
           echo "KERNEL_DIR=${{ env.KERNEL_ROOT }}/common" >> $GITHUB_ENV
 
