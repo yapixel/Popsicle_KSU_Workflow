@@ -59,6 +59,7 @@
 +
  	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
  		return -EINVAL;
+ 
 --- a/kernel/reboot.c
 +++ b/kernel/reboot.c
 @@ -277,6 +277,11 @@ static DEFINE_MUTEX(reboot_mutex);
