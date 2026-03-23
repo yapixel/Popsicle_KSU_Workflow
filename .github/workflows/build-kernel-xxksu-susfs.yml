@@ -121,10 +121,10 @@ jobs:
       - name: Sync kernel sources (GKI SM8850)
         run: |
           mkdir -p "${{ env.KERNEL_ROOT }}" && cd "${{ env.KERNEL_ROOT }}"
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/android_gki_kernel_common/archive/refs/heads/android16-6.12-2025-06.zip -o common.zip && 
-          unzip -q common.zip && 
-          mv "android_gki_kernel_common-android16-6.12-2025-06" common &&
-          rm -rf common.zip &
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/android_gki_kernel_common/archive/refs/heads/android16-6.12-2025-06.zip -o common.zip
+          unzip -q common.zip
+          mv "android_gki_kernel_common-android16-6.12-2025-06" common
+          rm -f common.zip &
           echo "KERNEL_DIR=${{ env.KERNEL_ROOT }}/common" >> $GITHUB_ENV
 
       - name: Sync SuSFS Source
