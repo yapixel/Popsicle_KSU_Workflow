@@ -187,6 +187,7 @@ jobs:
         run: |
           FRAGMENT="${{ env.KERNEL_DIR }}/arch/arm64/configs/ksu_susfs.fragment"
           printf 'CONFIG_KSU=y\nCONFIG_KSU_DEBUG=n\n' > "$FRAGMENT"
+          printf 'CONFIG_DEBUG_INFO_BTF=n\CONFIG_DEBUG_INFO_BTF_MODULES=n\n' > "$FRAGMENT"
           if [ "${{ matrix.variant }}" = "xxksu" ]; then
             printf 'CONFIG_KSU_EXTRAS=y\nCONFIG_KSU_LSM_SECURITY_HOOKS=n\nCONFIG_KSU_TAMPER_SYSCALL_TABLE=n\n' >> "$FRAGMENT"
           fi
