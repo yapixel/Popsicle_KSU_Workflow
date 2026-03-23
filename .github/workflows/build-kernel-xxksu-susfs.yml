@@ -173,7 +173,7 @@ jobs:
           patch -p1 < "${{ github.workspace }}/.github/patches/gki/scope-min-hooks-v1.9.patch" || exit 1
           cd KernelSU
           
-          patch -p1 < "${{ github.workspace }}/.github/patches/xxksu/10_enable_susfs_for_ksu.patch" || exit 1
+          patch -p1 --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/10_enable_susfs_for_ksu.patch" || exit 1
 
       - name: Apply Source Fixes
         run: |
