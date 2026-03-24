@@ -161,7 +161,7 @@ jobs:
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" "${{ env.KERNEL_DIR }}/include/linux/"
           cd "${{ env.KERNEL_DIR }}"
           patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch" 
-          patch -p1 < "${{ github.workspace }}/.github/patches/xxksu/xxksu_susfs_compat.patch
+          patch -p1 < "${{ github.workspace }}/.github/patches/xxksu/xxksu_susfs_compat.patch"
           
           
 
