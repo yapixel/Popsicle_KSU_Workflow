@@ -153,3 +153,14 @@
  	kruid = make_kuid(ns, ruid);
  	keuid = make_kuid(ns, euid);
  	ksuid = make_kuid(ns, suid);
+--- a/fs/susfs.c
++++ b/fs/susfs.c
+@@ -670,6 +670,8 @@
+ void susfs_init(void) {
+ 	SUSFS_LOGI("susfs is initialized! version: " SUSFS_VERSION " \n");
+ }
+ 
+ /* No module exit is needed becuase it should never be a loadable kernel module */
+ //void __init susfs_exit(void)
++
++bool ksu_su_compat_enabled __attribute__((weak)) = true;
