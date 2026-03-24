@@ -54,7 +54,7 @@
  	return dentry->d_fsdata;
 --- a/fs/exec.c
 +++ b/fs/exec.c
-@@ -1913,17 +1913,6 @@
+@@ -1913,16 +1913,6 @@
  	return retval;
  }
  
@@ -71,8 +71,7 @@
 -
  static int do_execveat_common(int fd, struct filename *filename,
  			      struct user_arg_ptr argv,
- 			      struct user_arg_ptr envp,
-@@ -1935,20 +1924,6 @@
+@@ -1935,20 +1925,6 @@
  	if (IS_ERR(filename))
  		return PTR_ERR(filename);
  
@@ -95,7 +94,7 @@
  	 * set*uid() to execve() because too many poorly written programs
 --- a/fs/read_write.c
 +++ b/fs/read_write.c
-@@ -718,18 +718,6 @@
+@@ -718,18 +718,8 @@
  	return ret;
  }
  
@@ -116,7 +115,7 @@
  
 --- a/fs/stat.c
 +++ b/fs/stat.c
-@@ -242,8 +242,8 @@
+@@ -242,6 +242,6 @@
  
  #ifdef CONFIG_KSU_SUSFS
 -extern bool ksu_init_rc_hook __read_mostly;
@@ -124,7 +123,7 @@
  extern void ksu_handle_vfs_fstat(int fd, loff_t *kstat_size_ptr);
  #endif // #ifdef CONFIG_KSU_SUSFS
  
-@@ -257,7 +257,7 @@
+@@ -257,6 +257,6 @@
  	error = vfs_getattr(&fd_file(f)->f_path, stat, STATX_BASIC_STATS, 0);
  #ifdef CONFIG_KSU_SUSFS
 -	if (unlikely(ksu_init_rc_hook)) {
@@ -132,7 +131,7 @@
  		ksu_handle_vfs_fstat(fd, &stat->size);
  	}
  #endif // #ifdef CONFIG_KSU_SUSFS
-@@ -333,14 +333,6 @@
+@@ -333,15 +333,5 @@
  
  #ifdef CONFIG_KSU_SUSFS
 -extern bool ksu_su_compat_enabled __read_mostly;
