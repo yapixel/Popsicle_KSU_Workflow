@@ -268,9 +268,12 @@ jobs:
           echo "- **Clang:** Official 19.0.1 (r536225)" >> release_notes.md
           echo "- **Status:** Build Successful" >> release_notes.md
 
+          # THE FIX: Added --repo to explicitly tell gh where to upload
           gh release create "oki-sm8850-${{ github.run_number }}" \
+            --repo "${{ github.repository }}" \
             --title "OKI SM8850 Build #${{ github.run_number }}" \
             --notes-file release_notes.md \
             ./*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
