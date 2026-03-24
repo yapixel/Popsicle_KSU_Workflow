@@ -1,6 +1,6 @@
 --- a/drivers/input/input.c
 +++ b/drivers/input/input.c
-@@ -354,12 +354,6 @@
+@@ -354,11 +354,5 @@
  	}
  }
  
@@ -12,7 +12,6 @@
 -
  void input_handle_event(struct input_dev *dev,
  			unsigned int type, unsigned int code, int value)
- {
 @@ -368,10 +362,6 @@
  	lockdep_assert_held(&dev->event_lock);
  
@@ -54,7 +53,7 @@
  	return dentry->d_fsdata;
 --- a/fs/exec.c
 +++ b/fs/exec.c
-@@ -1913,16 +1913,6 @@
+@@ -1913,16 +1913,5 @@
  	return retval;
  }
  
@@ -71,7 +70,7 @@
 -
  static int do_execveat_common(int fd, struct filename *filename,
  			      struct user_arg_ptr argv,
-@@ -1935,20 +1925,6 @@
+@@ -1935,20 +1924,6 @@
  	if (IS_ERR(filename))
  		return PTR_ERR(filename);
  
