@@ -229,9 +229,9 @@ jobs:
           cat "${{ env.FRAGMENT }}" >> out/.config
           make ARCH=arm64 LLVM=1 O=out olddefconfig
           
-          # Build with Orphan Handling Bypass for Clang 19
+          # Build with Orphan Handling Bypass for Clang 19 (LLD compatible)
           make -j$(nproc) ARCH=arm64 LLVM=1 O=out \
-            KBUILD_LDFLAGS="--orphan-handling=warn --no-warn-rwx-segments"
+            KBUILD_LDFLAGS="--orphan-handling=warn"
           
           echo "DIST_DIR=${{ env.KERNEL_DIR }}/out/arch/arm64/boot" >> $GITHUB_ENV
 
