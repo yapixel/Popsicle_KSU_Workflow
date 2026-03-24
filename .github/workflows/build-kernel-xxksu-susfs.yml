@@ -96,13 +96,23 @@ jobs:
         with:
           clean: false
 
-      - name: Download Clang Toolchain
+      - name: Download Clang 19 Toolchain
         run: |
-          mkdir -p $HOME/clang && cd $HOME/clang
-          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r536225.tar.gz -O clang.tar.gz
-          tar -xzf clang.tar.gz && rm clang.tar.gz
-          echo "CLANG_BIN=$HOME/clang/bin" >> $GITHUB_ENV
-          echo "$HOME/clang/bin" >> $GITHUB_PATH
+          echo "🚀 正在高速下载 Clang 19..."
+          mkdir -p $HOME/clang19
+          
+          # Using aria2 with optimized split settings for GitHub's backbone
+          aria2c -s16 -x16 -k1M --download-result=hide --summary-interval=0 \
+            "https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip" \
+            -o clang.zip
+          
+          echo "📦 正在解压..."
+          unzip -q clang.zip -d $HOME/clang19
+          rm -f clang.zip
+          
+          # Set Paths immediately for subsequent steps
+          echo "CLANG_BIN=$HOME/clang19/bin" >> $GITHUB_ENV
+          echo "$HOME/clang19/bin" >> $GITHUB_PATH
 
       - name: Download AArch64 GNU Toolchain
         run: |
