@@ -722,31 +722,18 @@ index b65f322b..ca0aa367 100644
                                 int *__never_use_flags);
  
 diff --git a/kernel/supercalls.c b/kernel/supercalls.c
-index a69518f1..75f8bf6f 100644
+index a69518f1..7da93e37 100644
 --- a/kernel/supercalls.c
 +++ b/kernel/supercalls.c
-@@ -13,6 +13,10 @@
- #include <linux/version.h>
- #include <linux/pid.h>
- #include <linux/utsname.h> // utsname() and uts_sem
-+#ifdef CONFIG_KSU_SUSFS
-+#include <linux/namei.h>
-+#include <linux/susfs.h>
-+#endif // #ifdef CONFIG_KSU_SUSFS
+@@ -981,6 +981,7 @@ void ksu_supercalls_init(void)
+         pr_info("  %-18s = 0x%08x\n", ksu_ioctl_handlers[i].name, ksu_ioctl_handlers[i].cmd);
+     }
  
- #include "supercalls.h"
- #include "arch.h"
-@@ -131,6 +135,9 @@ static int do_report_event(void __user *arg)
-             } else {
-                 pr_info("boot_complete triggered\n");
-                 on_boot_completed();
-+#ifdef CONFIG_KSU_SUSFS
-+                susfs_start_sdcard_monitor_fn();
-+#endif // #ifdef CONFIG_KSU_SUSFS
-             }
-         }
-         break;
-@@ -989,13 +996,18 @@ void ksu_supercalls_init(void)
++#ifndef CONFIG_KSU_SUSFS
+     int rc = register_kprobe(&reboot_kp);
+     if (rc) {
+         pr_err("reboot kprobe failed: %d\n", rc);
+@@ -989,13 +990,18 @@ void ksu_supercalls_init(void)
      }
  
      sulog_init_heap(); // grab heap memory
