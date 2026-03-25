@@ -457,14 +457,40 @@ index 04604ae6..2583a754 100644
  {
      // we rely on the fact that zygote always call setresuid(3) with same uids
 diff --git a/kernel/sucompat.c b/kernel/sucompat.c
-index 1e1df934..1c379a41 100644
+index 1e1df934..4803de85 100644
 --- a/kernel/sucompat.c
 +++ b/kernel/sucompat.c
-@@ -153,6 +153,127 @@ int ksu_handle_execve_sucompat(const char __user **filename_user, void *__never_
+@@ -12,6 +12,15 @@
+ #include <linux/sched/task_stack.h>
+ #include <linux/ptrace.h>
+ 
++#ifdef CONFIG_KSU_SUSFS
++#include <linux/susfs_def.h>
++#include <linux/namei.h>
++#include <linux/selinux.h>
++#include <linux/sched/signal.h>
++#include "selinux/selinux.h"
++#include "../../security/selinux/include/objsec.h" 
++#endif
++
+ #include "allowlist.h"
+ #include "feature.h"
+ #include "klog.h" // IWYU pragma: keep
+@@ -70,6 +79,8 @@ static char __user *ksud_user_path(void)
+     return userspace_stack_buffer(ksud_path, sizeof(ksud_path));
+ }
+ 
++#ifndef CONFIG_KSU_SUSFS
++
+ int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *__unused_flags)
+ {
+     const char su[] = SU_PATH;
+@@ -153,6 +164,129 @@ int ksu_handle_execve_sucompat(const char __user **filename_user, void *__never_
      return escape_with_root_profile();
  }
  
 +#else
++
 +static const char sh_path[] = SH_PATH;
 +static const char su_path[] = SU_PATH;
 +static const char ksud_path[] = KSUD_PATH;
@@ -585,30 +611,43 @@ index 1e1df934..1c379a41 100644
 +    return 0;
 +}
 +#endif // #ifndef CONFIG_KSU_SUSFS
++
  // sucompat: permitted process can execute 'su' to gain root access.
  void ksu_sucompat_init()
  {
+@@ -164,4 +298,4 @@ void ksu_sucompat_init()
+ void ksu_sucompat_exit()
+ {
+     ksu_unregister_feature_handler(KSU_FEATURE_SU_COMPAT);
+-}
++}
+\ No newline at end of file
 diff --git a/kernel/sucompat.h b/kernel/sucompat.h
-index b65f322b..9d6635f4 100644
+index b65f322b..ca0aa367 100644
 --- a/kernel/sucompat.h
 +++ b/kernel/sucompat.h
-@@ -1,6 +1,7 @@
+@@ -1,6 +1,8 @@
  #ifndef __KSU_H_SUCOMPAT
  #define __KSU_H_SUCOMPAT
++
  #include <linux/types.h>
 +#include <linux/version.h>
  
  extern bool ksu_su_compat_enabled;
  
-@@ -9,7 +10,11 @@ void ksu_sucompat_exit(void);
+@@ -9,7 +11,15 @@ void ksu_sucompat_exit(void);
  
  // Handler functions exported for hook_manager
  int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *__unused_flags);
++
 +#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0) && defined(CONFIG_KSU_SUSFS)
++// SUSFS uses 'struct filename' for newer kernels
 +int ksu_handle_stat(int *dfd, struct filename **filename, int *flags);
 +#else
++// Standard KSU (or older kernels) uses 'char __user'
  int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);
 +#endif
++
  int ksu_handle_execve_sucompat(const char __user **filename_user, void *__never_use_argv, void *__never_use_envp,
                                 int *__never_use_flags);
  
