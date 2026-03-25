@@ -279,6 +279,55 @@ jobs:
 
           echo "DIST_DIR=${{ env.KERNEL_DIR }}/out/arch/arm64/boot" >> $GITHUB_ENV
 
+      - name: Upload Diagnostic Files
+        if: matrix.variant == 'xxksu'
+        run: |
+          mkdir -p /tmp/diag/patches
+          mkdir -p /tmp/diag/kernel_hook
+          mkdir -p /tmp/diag/kernel_ksu
+
+          # Hook headers and implementation
+          cp "${{ env.KERNEL_DIR }}"/drivers/kernelsu/hook/syscall_hook.h /tmp/diag/kernel_hook/ 2>/dev/null || true
+          cp "${{ env.KERNEL_DIR }}"/drivers/kernelsu/hook/*.c /tmp/diag/kernel_hook/ 2>/dev/null || true
+          cp "${{ env.KERNEL_DIR }}"/drivers/kernelsu/hook/*.h /tmp/diag/kernel_hook/ 2>/dev/null || true
+
+          # syscall_hook_manager if it exists
+          cp "${{ env.KERNEL_DIR }}"/drivers/kernelsu/syscall_hook_manager.* /tmp/diag/kernel_ksu/ 2>/dev/null || true
+          cp "${{ env.KERNEL_DIR }}"/drivers/kernelsu/syscall_hook_manager.h /tmp/diag/kernel_ksu/ 2>/dev/null || true
+
+          # ksud.h and ksu.h
+          cp "${{ env.KERNEL_DIR }}"/drivers/kernelsu/ksud.h /tmp/diag/kernel_ksu/ 2>/dev/null || true
+          cp "${{ env.KERNEL_DIR }}"/drivers/kernelsu/ksu.h /tmp/diag/kernel_ksu/ 2>/dev/null || true
+          cp "${{ env.KERNEL_DIR }}"/drivers/kernelsu/ksud.c /tmp/diag/kernel_ksu/ 2>/dev/null || true
+          cp "${{ env.KERNEL_DIR }}"/drivers/kernelsu/supercalls.c /tmp/diag/kernel_ksu/ 2>/dev/null || true
+          cp "${{ env.KERNEL_DIR }}"/drivers/kernelsu/ksu.c /tmp/diag/kernel_ksu/ 2>/dev/null || true
+
+          # The xxksu patches
+          cp "${{ github.workspace }}"/.github/patches/xxksu/*.patch /tmp/diag/patches/ 2>/dev/null || true
+
+          # fs hooks that reference the missing symbols
+          grep -n "ksu_init_rc_hook\|ksu_handle_sys_read\|ksu_handle_vfs_fstat\|ksu_execveat_hook\|ksu_input_hook\|ksu_handle_sys_reboot\|ksu_syscall_hook_manager" \
+            "${{ env.KERNEL_DIR }}"/fs/read_write.c \
+            "${{ env.KERNEL_DIR }}"/fs/stat.c \
+            "${{ env.KERNEL_DIR }}"/fs/exec.c \
+            "${{ env.KERNEL_DIR }}"/kernel/reboot.c \
+            "${{ env.KERNEL_DIR }}"/drivers/input/input.c \
+            2>/dev/null > /tmp/diag/fs_hook_references.txt || true
+
+          # List all files in kernelsu driver dir
+          ls -la "${{ env.KERNEL_DIR }}"/drivers/kernelsu/ > /tmp/diag/kernelsu_files.txt 2>/dev/null || true
+          ls -la "${{ env.KERNEL_DIR }}"/drivers/kernelsu/hook/ >> /tmp/diag/kernelsu_files.txt 2>/dev/null || true
+
+        continue-on-error: true
+
+      - name: Upload Diagnostic Artifact
+        if: matrix.variant == 'xxksu'
+        uses: actions/upload-artifact@v4
+        with:
+          name: diag-xxksu
+          path: /tmp/diag/
+        continue-on-error: true
+
       - name: Package Kernel (AnyKernel3)
         run: |
           git clone --depth=1 --branch=gki-2.0 https://github.com/WildKernels/AnyKernel3 AnyKernel3
