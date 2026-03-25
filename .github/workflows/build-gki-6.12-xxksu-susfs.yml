@@ -226,8 +226,8 @@ jobs:
           python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
 
-      - name: Fix xxKSU SUSFS Linker Errors
-        if: matrix.variant == 'xxksu' && env.ENABLE_SUSFS == 'true'
+      - name: Fix KowSU SUSFS Linker Errors
+        if: matrix.variant == 'kowsu' && env.ENABLE_SUSFS == 'true'
         run: |
           cd "${{ env.KERNEL_DIR }}"
 
