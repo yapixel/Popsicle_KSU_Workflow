@@ -184,12 +184,12 @@ jobs:
           cd "${{ env.KERNEL_DIR }}"
           case "${{ matrix.variant }}" in
             "kowsu")
-              KSU_BRANCH="main"
+              KSU_BRANCH="master"
               git clone --depth=1 --branch "$KSU_BRANCH" \
                 https://github.com/KOWX712/KernelSU.git KernelSU
               ;;
             "xxksu")
-              KSU_BRANCH="main"
+              KSU_BRANCH="master"
               git clone --depth=1 --branch "$KSU_BRANCH" \
                 https://github.com/backslashxx/KernelSU.git KernelSU
               ;;
