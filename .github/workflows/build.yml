@@ -1,4 +1,4 @@
-name: Build GKI xxksu/kowsu susfs 
+name: Build GKI xxksu/kowsu susfs test
 
 on:
   workflow_dispatch:
@@ -127,7 +127,7 @@ jobs:
 
       - name: Clone Scripts Repo
         run: |
-          git clone --depth=1 https://github.com/yapixel/sh "${{ github.workspace }}/sh"
+          git clone --depth=1 https://github.com/yalixel/sh "${{ github.workspace }}/sh"
           chmod +x "${{ github.workspace }}/sh/get_ksuver.sh"
 
       - name: Download Clang 19 Toolchain
@@ -140,6 +140,8 @@ jobs:
           rm -f clang.zip
           echo "CLANG_BIN=$HOME/clang19/bin" >> $GITHUB_ENV
           echo "$HOME/clang19/bin" >> $GITHUB_PATH
+          $HOME/clang19/bin/clang --version | head -1
+          $HOME/clang19/bin/ld.lld --version | head -1
 
       - name: Download GNU Toolchains
         run: |
@@ -155,6 +157,8 @@ jobs:
             -O tc-arm.tar.xz
           tar -xJf tc-arm.tar.xz && rm tc-arm.tar.xz
           echo "ARM32_TOOLCHAIN=$HOME/toolchains/$(ls -d arm-gnu-toolchain-*arm-none-eabi*)/bin/arm-none-eabi-" >> $GITHUB_ENV
+          $HOME/toolchains/$(ls -d arm-gnu-toolchain-*aarch64*)/bin/aarch64-none-linux-gnu-gcc --version | head -1
+          $HOME/toolchains/$(ls -d arm-gnu-toolchain-*arm-none-eabi*)/bin/arm-none-eabi-gcc --version | head -1
 
       - name: Sync Kernel Source (GKI 6.12)
         run: |
@@ -184,12 +188,12 @@ jobs:
           cd "${{ env.KERNEL_DIR }}"
           case "${{ matrix.variant }}" in
             "kowsu")
-              KSU_BRANCH="master"
+              KSU_BRANCH="main"
               git clone --depth=1 --branch "$KSU_BRANCH" \
                 https://github.com/KOWX712/KernelSU.git KernelSU
               ;;
             "xxksu")
-              KSU_BRANCH="master"
+              KSU_BRANCH="main"
               git clone --depth=1 --branch "$KSU_BRANCH" \
                 https://github.com/backslashxx/KernelSU.git KernelSU
               ;;
