@@ -127,7 +127,7 @@ jobs:
 
       - name: Clone Scripts Repo
         run: |
-          git clone --depth=1 https://github.com/yalixel/sh "${{ github.workspace }}/sh"
+          git clone --depth=1 https://github.com/yapixel/sh "${{ github.workspace }}/sh"
           chmod +x "${{ github.workspace }}/sh/get_ksuver.sh"
 
       - name: Download Clang 19 Toolchain
