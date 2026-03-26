@@ -1,4 +1,4 @@
-name: Build GKI xxksu/kowsu susfs test
+name: Build GKI xxksu/kowsu susfs
 
 on:
   workflow_dispatch:
@@ -100,6 +100,7 @@ jobs:
       ENABLE_SUSFS: ${{ needs.setup.outputs.enable_susfs }}
       FORCE_CLEAN: ${{ needs.setup.outputs.force_clean }}
       KSU_VARIANT: ${{ matrix.variant }}
+      IMAGE_FORMAT: "Image" # Easily change to Image.lz4 or Image.gz if your device requires it
 
     steps:
       - name: Free Disk Space & Install Build Dependencies
@@ -147,18 +148,22 @@ jobs:
         run: |
           mkdir -p $HOME/toolchains
           cd $HOME/toolchains
-          wget -q https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-linux-gnu.tar.xz \
-            -O tc.tar.xz
+          
+          # Download and extract ARM64
+          wget -q https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O tc.tar.xz
           tar -xJf tc.tar.xz && rm tc.tar.xz
-          echo "ARM64_TOOLCHAIN=$HOME/toolchains/$(ls -d arm-gnu-toolchain-*aarch64*)/bin/aarch64-none-linux-gnu-" >> $GITHUB_ENV
+          ARM64_DIR=$(find $HOME/toolchains -maxdepth 1 -type d -name "arm-gnu-toolchain-*aarch64*" | head -n 1)
+          echo "ARM64_TOOLCHAIN=$ARM64_DIR/bin/aarch64-none-linux-gnu-" >> $GITHUB_ENV
 
-          cd $HOME/toolchains
-          wget -q https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi.tar.xz \
-            -O tc-arm.tar.xz
+          # Download and extract ARM32
+          wget -q https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi.tar.xz -O tc-arm.tar.xz
           tar -xJf tc-arm.tar.xz && rm tc-arm.tar.xz
-          echo "ARM32_TOOLCHAIN=$HOME/toolchains/$(ls -d arm-gnu-toolchain-*arm-none-eabi*)/bin/arm-none-eabi-" >> $GITHUB_ENV
-          $HOME/toolchains/$(ls -d arm-gnu-toolchain-*aarch64*)/bin/aarch64-none-linux-gnu-gcc --version | head -1
-          $HOME/toolchains/$(ls -d arm-gnu-toolchain-*arm-none-eabi*)/bin/arm-none-eabi-gcc --version | head -1
+          ARM32_DIR=$(find $HOME/toolchains -maxdepth 1 -type d -name "arm-gnu-toolchain-*arm-none-eabi*" | head -n 1)
+          echo "ARM32_TOOLCHAIN=$ARM32_DIR/bin/arm-none-eabi-" >> $GITHUB_ENV
+          
+          # Verify
+          ${ARM64_DIR}/bin/aarch64-none-linux-gnu-gcc --version | head -1
+          ${ARM32_DIR}/bin/arm-none-eabi-gcc --version | head -1
 
       - name: Sync Kernel Source (GKI 6.12)
         run: |
@@ -432,7 +437,8 @@ jobs:
           cat "${{ env.FRAGMENT }}" >> out/.config
           make ARCH=arm64 LLVM=1 O=out olddefconfig
 
-          make -j$(nproc) ARCH=arm64 LLVM=1 O=out \
+          # Explicitly target the image format defined in env
+          make -j$(nproc) ARCH=arm64 LLVM=1 O=out ${{ env.IMAGE_FORMAT }} \
             LTO=thin \
             KBUILD_BUILD_USER=kleaf \
             KBUILD_BUILD_HOST=build-host \
@@ -444,7 +450,9 @@ jobs:
       - name: Package Kernel (AnyKernel3)
         run: |
           git clone --depth=1 --branch=gki-2.0 https://github.com/WildKernels/AnyKernel3 AnyKernel3
-          cp "${{ env.DIST_DIR }}/Image" AnyKernel3/
+          
+          # Use the targeted image format
+          cp "${{ env.DIST_DIR }}/${{ env.IMAGE_FORMAT }}" AnyKernel3/
 
           BUILD_DATE="$(date +'%d%m%y')"
           ZIP_NAME="${{ matrix.variant }}_popsicle_6.12.${{ github.event.inputs.sub_level }}+${{ env.KSU_VER }}-${BUILD_DATE}-susfs-${{ env.SUSFS_VERSION }}.zip"
@@ -500,10 +508,10 @@ jobs:
             ## Kernel Build Details
             | Field          | Value |
             | :------------- | :---- |
-            | **Kernel**     | `${{ steps.meta.outputs.full_version }}` (android16-6.12, SM8850 · popsicle) |
+            | **Kernel** | `${{ steps.meta.outputs.full_version }}` (android16-6.12, SM8850 · popsicle) |
             | **KSU Variant**| `${{ steps.meta.outputs.variant_input }}` |
-            | **SuSFS**      | `${{ steps.meta.outputs.susfs_enabled == 'true' && 'Enabled' || 'Disabled' }}` |
-            | **Compiler**   | Clang 19 (r536225) + arm-gnu-toolchain 14.3.rel1 |
+            | **SuSFS** | `${{ steps.meta.outputs.susfs_enabled == 'true' && 'Enabled' || 'Disabled' }}` |
+            | **Compiler** | Clang 19 (r536225) + arm-gnu-toolchain 14.3.rel1 |
             | **Build Time** | ${{ steps.meta.outputs.time_fmt }} (CST) |
 
             ## Networking
