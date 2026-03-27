@@ -170,6 +170,7 @@ jobs:
           unzip -q build-tools.zip && rm build-tools.zip
 
       - name: Sync SuSFS Source
+        if: env.ENABLE_SUSFS == 'true' && matrix.variant == 'kowsu'
         run: |
           SUSFS_DIR="${{ github.workspace }}/susfs4ksu"
           git clone --depth=1 --branch=gki-android16-6.12-dev \
