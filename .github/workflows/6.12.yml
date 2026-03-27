@@ -149,6 +149,16 @@ jobs:
           # Remove dirty suffix from localversion script
           sed -i 's/ -dirty//g' common/scripts/setlocalversion
 
+          echo "Downloading Clang/Rust Toolchains for Make..."
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip -o clang.zip
+          unzip -q clang.zip -d clang19 && rm clang.zip
+
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip
+          unzip -q rust.zip -d rust && rm rust.zip
+
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip
+          unzip -q build-tools.zip && rm build-tools.zip
+
       - name: Sync SuSFS Source
         run: |
           SUSFS_DIR="${{ github.workspace }}/susfs4ksu"
@@ -329,14 +339,10 @@ jobs:
           WORKDIR="$(pwd)"
           cd kernel_workspace
           
-          # Dynamically detect Google's official prebuilt Toolchains synced by Repo
-          CLANG_DIR=$(find prebuilts/clang/host/linux-x86 -maxdepth 1 -name "clang-*" ! -name "clang-based_on*" | sort -V | tail -n 1)
-          RUST_DIR=$(find prebuilts/rust/linux-x86 -maxdepth 1 -type d -name "1.*" | sort -V | tail -n 1)
-          BTOOLS_DIR="prebuilts/kernel-build-tools/linux-x86"
-          
-          export PATH="$WORKDIR/kernel_workspace/$CLANG_DIR/bin:$WORKDIR/kernel_workspace/$BTOOLS_DIR/bin:$WORKDIR/kernel_workspace/$RUST_DIR/bin:$PATH"
-          export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/$CLANG_DIR/bin/clang"
-          export LIBCLANG_PATH="$WORKDIR/kernel_workspace/$CLANG_DIR/lib"
+          # Point PATH directly to the downloaded zip toolchains
+          export PATH="$WORKDIR/kernel_workspace/clang19/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
+          export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/clang19/bin/clang"
+          export LIBCLANG_PATH="$WORKDIR/kernel_workspace/clang19/lib"
           
           cd common
           # Inject chosen SUBLEVEL (or skip if lts)
