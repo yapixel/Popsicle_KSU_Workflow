@@ -80,13 +80,20 @@ jobs:
             OS_PATCH=$(echo "$CHOICE" | cut -d'(' -f2 | cut -d')' -f1)
           fi
 
-          echo "enable_susfs=${{ github.event.inputs.disable_susfs == 'true' && 'false' || 'true' }}" >> $GITHUB_OUTPUT
+          # Force disable SuSFS globally if ONLY xxKSU is selected
+          if [ "${{ github.event.inputs.ksu_variant }}" = "xxksu" ]; then
+            echo "enable_susfs=false" >> $GITHUB_OUTPUT
+          else
+            echo "enable_susfs=${{ github.event.inputs.disable_susfs == 'true' && 'false' || 'true' }}" >> $GITHUB_OUTPUT
+          fi
+          
           echo "sub_level=$SUB_LEVEL" >> $GITHUB_OUTPUT
           echo "os_patch_level=$OS_PATCH" >> $GITHUB_OUTPUT
           echo "create_release=${{ github.event.inputs.create_release }}" >> $GITHUB_OUTPUT
           echo "release_tag=v6.12.${SUB_LEVEL}-$(date +'%Y%m%d-%H%M')" >> $GITHUB_OUTPUT
 
   build:
+    name: Build ${{ matrix.variant }} ${{ matrix.variant == 'kowsu' && needs.setup.outputs.enable_susfs == 'true' && '(SuSFS)' || '' }}
     needs: setup
     runs-on: ubuntu-latest
     timeout-minutes: 300
@@ -95,7 +102,8 @@ jobs:
       matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
 
     env:
-      ENABLE_SUSFS: ${{ needs.setup.outputs.enable_susfs }}
+      # Force SuSFS to false at the job level if this specific matrix run is xxksu
+      ENABLE_SUSFS: ${{ matrix.variant == 'xxksu' && 'false' || needs.setup.outputs.enable_susfs }}
       KSU_VARIANT: ${{ matrix.variant }}
       ANDROID_VERSION: 'android16'
       KERNEL_VERSION: '6.12'
@@ -481,7 +489,8 @@ jobs:
             | :------------- | :---- |
             | **Kernel** | `${{ steps.meta.outputs.full_version }}` (android16-6.12, SM8850 · popsicle) |
             | **KSU Variant**| `${{ steps.meta.outputs.variant_input }}` |
-            | **SuSFS** | `${{ steps.meta.outputs.susfs_enabled == 'true' && 'Disabled' || 'Enabled' }}` |
+            | **SuSFS (KowSU)** | `${{ steps.meta.outputs.susfs_enabled == 'true' && 'Enabled' || 'Disabled' }}` |
+            | **SuSFS (xxKSU)** | `Disabled` |
             | **Compiler** | Google Prebuilt Clang + Rust |
             | **Build Time** | ${{ steps.meta.outputs.time_fmt }} (CST) |
 
