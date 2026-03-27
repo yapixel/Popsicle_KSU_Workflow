@@ -5,6 +5,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# ADDED: Explicitly grant write permissions so they can be passed to the reusable workflow
+permissions:
+  contents: write
+  packages: write
+
 on:
   workflow_dispatch:
     inputs:
@@ -53,3 +58,4 @@ jobs:
       gki_version: ${{ inputs.gki_version }}
       disable_susfs: ${{ inputs.disable_susfs }}
       create_release: ${{ inputs.create_release }}
+      
