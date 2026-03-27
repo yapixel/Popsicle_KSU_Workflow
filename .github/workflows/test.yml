@@ -1,4 +1,4 @@
-name: Build GKI xxksu/kowsu susfs (Bootable Base)
+name: Build Google GKI (KowSU & xxKSU + SuSFS)
 
 on:
   workflow_dispatch:
@@ -22,6 +22,11 @@ on:
         required: true
         default: '23'
         type: string
+      create_release:
+        description: 'Publish a GitHub Release'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -34,6 +39,8 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       enable_susfs: ${{ steps.config.outputs.enable_susfs }}
       sub_level: ${{ steps.config.outputs.sub_level }}
+      create_release: ${{ steps.config.outputs.create_release }}
+      release_tag: ${{ steps.config.outputs.release_tag }}
     steps:
       - name: Set Build Matrix
         id: set-matrix
@@ -50,6 +57,8 @@ jobs:
         run: |
           echo "enable_susfs=${{ github.event.inputs.disable_susfs == 'true' && 'false' || 'true' }}" >> $GITHUB_OUTPUT
           echo "sub_level=${{ github.event.inputs.sub_level }}" >> $GITHUB_OUTPUT
+          echo "create_release=${{ github.event.inputs.create_release }}" >> $GITHUB_OUTPUT
+          echo "release_tag=v6.12.${{ github.event.inputs.sub_level }}-$(date +'%Y%m%d-%H%M')" >> $GITHUB_OUTPUT
 
   build:
     needs: setup
@@ -67,7 +76,7 @@ jobs:
 
     steps:
       - name: Checkout Workflow Repo (For Patches)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           clean: false
 
@@ -89,9 +98,10 @@ jobs:
         run: |
           mkdir -p kernel_workspace && cd kernel_workspace
 
-          echo "Cloning GKI 6.12 Source..."
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/android_gki_kernel_common/archive/refs/heads/android16-6.12-2025-06.zip -o common.zip
-          unzip -q common.zip && mv "android_gki_kernel_common-android16-6.12-2025-06" common && rm common.zip
+          echo "Downloading Official GKI 6.12 Source from Google (Archive)..."
+          aria2c -s16 -x16 -k1M https://android.googlesource.com/kernel/common/+archive/refs/heads/android16-6.12.tar.gz -o common.tar.gz
+          mkdir common
+          tar -xzf common.tar.gz -C common && rm common.tar.gz
 
           echo "Cloning Clang 19 Toolchain..."
           aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip -o clang.zip
@@ -121,6 +131,7 @@ jobs:
           echo "SUSFS_VERSION=${SUSFS_VERSION:-unknown}" >> $GITHUB_ENV
 
       - name: Setup KernelSU Variant (xxKSU / KowSU)
+        if: matrix.variant != 'none'
         run: |
           cd kernel_workspace/common
           case "${{ matrix.variant }}" in
@@ -147,15 +158,19 @@ jobs:
 
       - name: Resolve KSU Version
         run: |
-          case "${{ matrix.variant }}" in
-            "kowsu")
-              KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "KOWX712" "KernelSU" "${{ env.KSU_BRANCH }}" || echo "unknown")
-              ;;
-            "xxksu")
-              KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "backslashxx" "KernelSU" "${{ env.KSU_BRANCH }}" || echo "unknown")
-              ;;
-          esac
-          echo "KSU_VER=${KSU_VER}" >> $GITHUB_ENV
+          if [ "${{ matrix.variant }}" = "none" ]; then
+            echo "KSU_VER=stock" >> $GITHUB_ENV
+          else
+            case "${{ matrix.variant }}" in
+              "kowsu")
+                KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "KOWX712" "KernelSU" "${{ env.KSU_BRANCH }}" || echo "unknown")
+                ;;
+              "xxksu")
+                KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "backslashxx" "KernelSU" "${{ env.KSU_BRANCH }}" || echo "unknown")
+                ;;
+            esac
+            echo "KSU_VER=${KSU_VER}" >> $GITHUB_ENV
+          fi
 
       - name: Create Patch Healer
         run: |
@@ -186,7 +201,7 @@ jobs:
           PYEOF
 
       - name: Apply SuSFS Patches
-        if: env.ENABLE_SUSFS == 'true'
+        if: env.ENABLE_SUSFS == 'true' && matrix.variant != 'none'
         run: |
           cd kernel_workspace/common
           cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" fs/
@@ -214,6 +229,26 @@ jobs:
           cd kernel_workspace/common/KernelSU
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
 
+      - name: Apply KMI/Vermagic Bypass Patch
+        run: |
+          cd kernel_workspace/common
+          cat << 'EOF' > kmi_bypass.patch
+          --- a/kernel/module/version.c
+          +++ b/kernel/module/version.c
+          @@ -51,8 +51,8 @@
+           	return 1;
+           
+           bad_version:
+          -	pr_warn("%s: disagrees about version of symbol %s\n", info->name, symname);
+          -	return 0;
+          +	pr_warn("%s: disagrees about version of symbol %s. (bypassed)\n", info->name, symname);
+          +	return 1;
+           }
+          EOF
+          patch -p1 --fuzz=3 < kmi_bypass.patch || echo "Patch failed, trying sed fallback..."
+          sed -i '/bad_version:/,/^}/ s/return 0;/return 1;/' kernel/module/version.c
+          sed -i 's/disagrees about version of symbol/disagrees about version of symbol (bypassed)/' kernel/module/version.c
+
       - name: Inject Defconfig Flags
         run: |
           cd kernel_workspace
@@ -229,9 +264,15 @@ jobs:
           echo "CONFIG_TMPFS_POSIX_ACL=y" >> $DEFCONFIG
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
-          # Base KSU
-          echo "CONFIG_KSU=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_DEBUG=n" >> $DEFCONFIG
+          # Base KSU Logic (Aggressively scrub KSU if 'none' is selected)
+          if [ "${{ matrix.variant }}" = "none" ]; then
+            echo "Scrubbing pre-existing KSU configs from source..."
+            sed -i '/CONFIG_KSU/d' $DEFCONFIG
+            echo "CONFIG_KSU=n" >> $DEFCONFIG
+          else
+            echo "CONFIG_KSU=y" >> $DEFCONFIG
+            echo "CONFIG_KSU_DEBUG=n" >> $DEFCONFIG
+          fi
 
           # xxKSU Specifics
           if [ "${{ matrix.variant }}" = "xxksu" ]; then
@@ -242,8 +283,8 @@ jobs:
           EOF
           fi
 
-          # SuSFS Specifics
-          if [[ "${{ env.ENABLE_SUSFS }}" == "true" ]]; then
+          # SuSFS Specifics (Only inject if not "none")
+          if [[ "${{ env.ENABLE_SUSFS }}" == "true" && "${{ matrix.variant }}" != "none" ]]; then
             cat >> $DEFCONFIG <<-'EOF'
           CONFIG_KSU_SUSFS=y
           CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
@@ -275,7 +316,7 @@ jobs:
 
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfakestat.so
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfaketimeMT.so
-          chmod +x libfakestat.so libfaketimeMT.so
+          chmod +x libfakestat.so libfaketimeMT.so 2>/dev/null || true
 
           export FAKESTAT="2025-09-12 04:57:41"
           export FAKETIME="@2025-09-12 04:57:41"
@@ -348,7 +389,77 @@ jobs:
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: Upload Build Artifact
-        uses: actions/upload-artifact@v7.0.0
+        uses: actions/upload-artifact@v4
         with:
           name: kernel-${{ matrix.variant }}
           path: kernel_workspace/${{ env.ZIP_NAME }}
+
+  release:
+    name: Publish Release
+    runs-on: ubuntu-latest
+    needs: [setup, build]
+    if: needs.setup.outputs.create_release == 'true'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download All Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: kernel-*
+          path: release_zips
+          merge-multiple: true
+
+      - name: Collect Release Metadata
+        id: meta
+        run: |
+          SUB="${{ needs.setup.outputs.sub_level }}"
+          VARIANT_INPUT="${{ github.event.inputs.ksu_variant }}"
+          SUSFS_ENABLED="${{ needs.setup.outputs.enable_susfs }}"
+          FULL_VERSION="6.12.${SUB}"
+          TIME_FMT="$(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S')"
+          echo "full_version=${FULL_VERSION}" >> $GITHUB_OUTPUT
+          echo "time_fmt=${TIME_FMT}" >> $GITHUB_OUTPUT
+          echo "variant_input=${VARIANT_INPUT}" >> $GITHUB_OUTPUT
+          echo "susfs_enabled=${SUSFS_ENABLED}" >> $GITHUB_OUTPUT
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "${{ needs.setup.outputs.release_tag }}"
+          name: "GKI ${{ steps.meta.outputs.full_version }} — ${{ needs.setup.outputs.release_tag }}"
+          body: |
+            ## Kernel Build Details
+            | Field          | Value |
+            | :------------- | :---- |
+            | **Kernel** | `${{ steps.meta.outputs.full_version }}` (android16-6.12, SM8850 · popsicle) |
+            | **KSU Variant**| `${{ steps.meta.outputs.variant_input }}` |
+            | **SuSFS** | `${{ steps.meta.outputs.susfs_enabled == 'true' && 'Disabled' || 'Enabled' }}` |
+            | **Compiler** | Clang 19 (r536225) |
+            | **Build Time** | ${{ steps.meta.outputs.time_fmt }} (CST) |
+
+            ## Installation
+            **Method A — Recovery (recommended)**
+            1. Boot into TWRP / OrangeFox.
+            2. Flash the AnyKernel3 zip below.
+            3. Reboot.
+
+            **Method B — In-Android**
+            Use [HorizonKernelFlasher](https://github.com/libxzr/HorizonKernelFlasher) or [KernelFlasher](https://github.com/capntrips/KernelFlasher).
+
+            ## KernelSU Manager
+            | Variant | Manager |
+            | :------ | :------ |
+            | **xxKSU** | [backslashxx/KernelSU](https://github.com/backslashxx/KernelSU/releases) |
+            | **KowSU** | [KOWX712/KernelSU](https://github.com/KOWX712/KernelSU/releases) |
+
+            > ⚠️ A meta-module is required for mounting.
+            > Recommended: [mountify](https://github.com/backslashxx/mountify) (xxKSU)
+
+            > Built automatically via GitHub Actions — [run #${{ github.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          draft: false
+          prerelease: false
+          files: release_zips/*.zip
