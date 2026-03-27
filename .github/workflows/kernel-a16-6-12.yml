@@ -308,6 +308,32 @@ jobs:
             sed -i 's/disagrees about version of symbol/disagrees about version of symbol (bypassed)/' kernel/module/version.c
           }
 
+      - name: Apply Stock Config Spoofing
+        run: |
+          # Look for the user's uploaded stock_defconfig
+          STOCK_SRC="${{ github.workspace }}/config/stock_defconfig"
+          STOCK_DST="${{ github.workspace }}/kernel_workspace/common/arch/arm64/configs/stock_defconfig"
+
+          if [ ! -f "$STOCK_SRC" ]; then
+            echo "No stock_defconfig found at $STOCK_SRC, skipping spoofing."
+            exit 0
+          fi
+
+          mkdir -p "$(dirname "$STOCK_DST")"
+          cp "$STOCK_SRC" "$STOCK_DST"
+          echo "Copied stock_defconfig to kernel tree."
+
+          # Force the kernel to embed the stock config into /proc/config.gz instead of the real one
+          OLD_RULE='$(obj)/config_data: $(KCONFIG_CONFIG) FORCE'
+          TARGET_MAKEFILE="${{ github.workspace }}/kernel_workspace/common/kernel/Makefile"
+
+          if grep -qF "$OLD_RULE" "$TARGET_MAKEFILE"; then
+            sed -i 's|$(obj)/config_data: $(KCONFIG_CONFIG) FORCE|$(obj)/config_data: arch/arm64/configs/stock_defconfig FORCE|' "$TARGET_MAKEFILE"
+            echo "Successfully replaced config_data rule to spoof stock config!"
+          else
+            echo "Could not find config_data rule to patch."
+          fi
+
       - name: Inject Defconfig Flags
         run: |
           cd kernel_workspace
@@ -404,124 +430,4 @@ jobs:
           KCFLAGS+=" -no-canonical-prefixes -O2 -pipe -Wno-error -Wno-unused-command-line-argument -fno-stack-protector"
           export KCFLAGS
 
-          export RUSTC="rustc"
-          export BINDGEN="bindgen"
-          export CC="clang"
-          export HOSTCC=clang
-          export LD="ld.lld"
-          export HOSTLD=ld.lld
-          export LLVM=1 LLVM_IAS=1
-          export ARCH=arm64 SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
-
-          export KBUILD_BUILD_USER="kleaf"
-          export KBUILD_BUILD_HOST="build-host"
-          export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
-
-          make -j$(nproc --all) O=out gki_defconfig
-
-          export CC="$(pwd)/cc-wrapper"
-          export LD="$(pwd)/ld-wrapper"
-          make -j$(nproc --all) O=out Image
-
-      - name: Package with AnyKernel3
-        run: |
-          cd kernel_workspace
-
-          git clone https://github.com/yapixel/AnyKernel3 --depth=1
-          rm -rf ./AnyKernel3/.git
-
-          cp ./common/out/arch/arm64/boot/Image ./AnyKernel3/
-
-          BUILD_DATE="$(date +'%d%m%y')"
-          cd AnyKernel3
-          
-          # Dynamically append SuSFS version only if enabled AND variant is KowSU
-          SUSFS_SUFFIX=""
-          if [[ "${{ env.ENABLE_SUSFS }}" == "true" && "${{ matrix.variant }}" == "kowsu" ]]; then
-            SUSFS_SUFFIX="-susfs-${{ env.SUSFS_VERSION }}"
-          fi
-          
-          ZIP_NAME="${{ matrix.variant }}_popsicle_6.12.${{ env.SUB_LEVEL }}+${{ env.KSU_VER }}-${BUILD_DATE}${SUSFS_SUFFIX}.zip"
-          
-          # Zip the entire directory including hidden files, excluding .git
-          zip -r9 "../$ZIP_NAME" . -x ".git*"
-          
-          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
-
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-${{ matrix.variant }}-6.12.${{ matrix.version.sub }}
-          path: kernel_workspace/${{ env.ZIP_NAME }}
-
-  release:
-    name: Publish Release
-    runs-on: ubuntu-latest
-    needs: [setup, build]
-    if: needs.setup.outputs.create_release == 'true'
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download All Build Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: kernel-*
-          path: release_zips
-          merge-multiple: true
-
-      - name: Collect Release Metadata
-        id: meta
-        run: |
-          VARIANT_INPUT="${{ inputs.ksu_variant }}"
-          SUSFS_ENABLED="${{ needs.setup.outputs.enable_susfs }}"
-          TIME_FMT="$(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S')"
-          GKI_VERSION="${{ inputs.gki_version }}"
-          echo "gki_version=${GKI_VERSION}" >> $GITHUB_OUTPUT
-          echo "time_fmt=${TIME_FMT}" >> $GITHUB_OUTPUT
-          echo "variant_input=${VARIANT_INPUT}" >> $GITHUB_OUTPUT
-          echo "susfs_enabled=${SUSFS_ENABLED}" >> $GITHUB_OUTPUT
-
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: "${{ needs.setup.outputs.release_tag }}"
-          name: "GKI 6.12 — ${{ needs.setup.outputs.release_tag }}"
-          body: |
-            ## Kernel Build Details
-            | Field          | Value |
-            | :------------- | :---- |
-            | **Kernel** | `6.12` (${{ steps.meta.outputs.gki_version }}) |
-            | **KSU Variant**| `${{ steps.meta.outputs.variant_input }}` |
-            | **SuSFS (KowSU)** | `${{ steps.meta.outputs.susfs_enabled == 'true' && 'Enabled' || 'Disabled' }}` |
-            | **SuSFS (xxKSU)** | `Disabled` |
-            | **Compiler** | Google Prebuilt Clang + Rust |
-            | **Build Time** | ${{ steps.meta.outputs.time_fmt }} (CST) |
-
-            ## Installation
-            **Method A — Recovery (recommended)**
-            1. Boot into TWRP / OrangeFox.
-            2. Flash the AnyKernel3 zip below.
-            3. Reboot.
-
-            **Method B — In-Android**
-            Use [HorizonKernelFlasher](https://github.com/libxzr/HorizonKernelFlasher) or [KernelFlasher](https://github.com/capntrips/KernelFlasher).
-
-            ## KernelSU Manager
-            | Variant | Manager |
-            | :------ | :------ |
-            | **xxKSU** | [backslashxx/KernelSU](https://github.com/backslashxx/KernelSU/releases) |
-            | **KowSU** | [KOWX712/KernelSU](https://github.com/KOWX712/KernelSU/releases) |
-
-            > ⚠️ A meta-module is required for mounting.
-            > Recommended: [mountify](https://github.com/backslashxx/mountify) (xxKSU)
-
-            > Built automatically via GitHub Actions — [run #${{ github.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          draft: false
-          prerelease: false
-          files: release_zips/*.zip
+          export RUST
