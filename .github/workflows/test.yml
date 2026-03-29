@@ -293,6 +293,55 @@ jobs:
             sed -i '/bad_version:/,/^}/ s/return 0;/return 1;/' kernel/module/version.c
             sed -i 's/disagrees about version of symbol/disagrees about version of symbol (bypassed)/' kernel/module/version.c
           }
+      - name: Setup Network & IPSet Config
+        run: |
+          DEFCONFIG="./kernel_workspace/common/arch/arm64/configs/gki_defconfig"
+          
+          echo "--- Configuring Network & Performance Flags ---"
+          
+          cat >> $DEFCONFIG <<-'EOF'
+          # Networking TTL/HL Modification
+          CONFIG_IP_NF_TARGET_TTL=y
+          CONFIG_IP6_NF_TARGET_HL=y
+          CONFIG_IP6_NF_MATCH_HL=y
+
+          # BBR TCP Congestion Control
+          CONFIG_TCP_CONG_ADVANCED=y
+          CONFIG_TCP_CONG_BBR=y
+          CONFIG_NET_SCH_FQ=y
+          # CONFIG_TCP_CONG_BIC is not set
+          # CONFIG_TCP_CONG_WESTWOOD is not set
+          # CONFIG_TCP_CONG_HTCP is not set
+
+          # Full IPSet Suite for atp4ksu
+          CONFIG_IP_SET=y
+          CONFIG_NETFILTER_XT_SET=y
+          CONFIG_IP_SET_MAX=65534
+          CONFIG_IP_SET_BITMAP_IP=y
+          CONFIG_IP_SET_BITMAP_IPMAC=y
+          CONFIG_IP_SET_BITMAP_PORT=y
+          CONFIG_IP_SET_HASH_IP=y
+          CONFIG_IP_SET_HASH_IPMARK=y
+          CONFIG_IP_SET_HASH_IPPORT=y
+          CONFIG_IP_SET_HASH_IPPORTIP=y
+          CONFIG_IP_SET_HASH_IPPORTNET=y
+          CONFIG_IP_SET_HASH_IPMAC=y
+          CONFIG_IP_SET_HASH_MAC=y
+          CONFIG_IP_SET_HASH_NETPORTNET=y
+          CONFIG_IP_SET_HASH_NET=y
+          CONFIG_IP_SET_HASH_NETNET=y
+          CONFIG_IP_SET_HASH_NETPORT=y
+          CONFIG_IP_SET_HASH_NETIFACE=y
+          CONFIG_IP_SET_LIST_SET=y
+
+          # TProxy & REDIRECT Targets
+          CONFIG_NETFILTER_XT_TARGET_TPROXY=y
+          CONFIG_NETFILTER_XT_TARGET_REDIRECT=y
+          CONFIG_NETFILTER_XT_MATCH_SOCKET=y
+          CONFIG_NETFILTER_XT_MATCH_MARK=y
+          EOF
+          
+          echo "Done. Network flags injected into $DEFCONFIG"
 
       - name: Inject Defconfig Flags
         run: |
