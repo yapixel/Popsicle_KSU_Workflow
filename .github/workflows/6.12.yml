@@ -239,7 +239,7 @@ jobs:
           # Bypass GKI Integrity Checks
           sed -i 's/check_defconfig//' ./common/build.config.gki || true
 
-            - name: Verify Kernel Configuration (Debug Menu)
+      - name: Verify Kernel Configuration (Debug Menu)
         run: |
           # Use the actual generated .config if available, otherwise fallback to defconfig
           DOT_CONFIG="kernel_workspace/common/out/.config"
