@@ -1,4 +1,4 @@
-name: Build GKI SUSFS with KowSU/xxksu
+name: Build GKI with xxksu and kowsu
 
 on:
   workflow_dispatch:
@@ -10,14 +10,8 @@ on:
         type: choice
         options:
           - all
-          - none
           - kowsu
           - xxksu
-      disable_susfs:
-        description: 'Disable SuSFS features (KowSU only)'
-        required: false
-        default: false
-        type: boolean
       sub_level:
         description: 'Kernel sublevel (e.g. 23 for 6.12.23)'
         required: true
@@ -38,7 +32,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
-      enable_susfs: ${{ steps.config.outputs.enable_susfs }}
       sub_level: ${{ steps.config.outputs.sub_level }}
       create_release: ${{ steps.config.outputs.create_release }}
       release_tag: ${{ steps.config.outputs.release_tag }}
@@ -48,7 +41,7 @@ jobs:
         run: |
           VARIANT="${{ github.event.inputs.ksu_variant }}"
           if [ "$VARIANT" = "all" ]; then
-            echo 'matrix={"variant":["none","kowsu","xxksu"]}' >> $GITHUB_OUTPUT
+            echo 'matrix={"variant":["kowsu","xxksu"]}' >> $GITHUB_OUTPUT
           else
             echo "matrix={\"variant\":[\"$VARIANT\"]}" >> $GITHUB_OUTPUT
           fi
@@ -56,7 +49,6 @@ jobs:
       - name: Set Build Config
         id: config
         run: |
-          echo "enable_susfs=${{ github.event.inputs.disable_susfs == 'true' && 'false' || 'true' }}" >> $GITHUB_OUTPUT
           echo "sub_level=${{ github.event.inputs.sub_level }}" >> $GITHUB_OUTPUT
           echo "create_release=${{ github.event.inputs.create_release }}" >> $GITHUB_OUTPUT
           echo "release_tag=v6.12.${{ github.event.inputs.sub_level }}-$(date +'%Y%m%d-%H%M')" >> $GITHUB_OUTPUT
@@ -70,16 +62,16 @@ jobs:
       matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
 
     env:
-      ENABLE_SUSFS: ${{ needs.setup.outputs.enable_susfs }}
       KSU_VARIANT: ${{ matrix.variant }}
       ANDROID_VERSION: 'android16'
       KERNEL_VERSION: '6.12'
 
     steps:
       - name: Checkout Workflow Repo (For Patches)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           clean: false
+          submodules: true
 
       - name: Free Disk Space & Install Dependencies
         run: |
@@ -112,17 +104,7 @@ jobs:
 
           sed -i 's/ -dirty//g' common/scripts/setlocalversion
 
-      - name: Sync SuSFS Source
-        if: matrix.variant == 'kowsu' && env.ENABLE_SUSFS == 'true'
-        run: |
-          SUSFS_DIR="${{ github.workspace }}/susfs4ksu"
-          git clone --depth=1 --branch=gki-android16-6.12 https://gitlab.com/simonpunk/susfs4ksu "$SUSFS_DIR"
-          echo "SUSFS_DIR=$SUSFS_DIR" >> $GITHUB_ENV
-          SUSFS_VERSION=$(grep -m1 'define SUSFS_VERSION' "$SUSFS_DIR/kernel_patches/include/linux/susfs.h" | sed 's/.*"\(.*\)"/\1/')
-          echo "SUSFS_VERSION=${SUSFS_VERSION:-unknown}" >> $GITHUB_ENV
-
       - name: Setup KernelSU Variant
-        if: matrix.variant != 'none'
         run: |
           cd kernel_workspace/common
           case "${{ matrix.variant }}" in
@@ -135,13 +117,9 @@ jobs:
 
       - name: Resolve KSU Version
         run: |
-          if [ "${{ matrix.variant }}" = "none" ]; then
-            echo "KSU_VER=stock" >> $GITHUB_ENV
-          else
-            USER_REPO="${{ matrix.variant == 'kowsu' && 'KOWX712' || 'backslashxx' }}"
-            KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "$USER_REPO" "KernelSU" "master" || echo "unknown")
-            echo "KSU_VER=${KSU_VER}" >> $GITHUB_ENV
-          fi
+          USER_REPO="${{ matrix.variant == 'kowsu' && 'KOWX712' || 'backslashxx' }}"
+          KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "$USER_REPO" "KernelSU" "master" || echo "unknown")
+          echo "KSU_VER=${KSU_VER}" >> $GITHUB_ENV
 
       - name: Create Patch Healer
         run: |
@@ -160,15 +138,6 @@ jobs:
                   else: f.write(line + '\n')
           PYEOF
 
-      - name: Apply SuSFS Patches (KowSU Only)
-        if: matrix.variant == 'kowsu' && env.ENABLE_SUSFS == 'true'
-        run: |
-          cd kernel_workspace/common
-          cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" fs/
-          cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs.h" include/linux/
-          cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" include/linux/
-          patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
-
       - name: Apply Variant Patches
         run: |
           cd kernel_workspace/common
@@ -177,9 +146,6 @@ jobs:
             patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/manual-security-hooks-v1.8.patch"
             python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch"
             patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch"
-          elif [ "${{ matrix.variant }}" = "kowsu" ] && [ "$ENABLE_SUSFS" = "true" ]; then
-            cd KernelSU
-            patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
           fi
 
       - name: Apply KMI Bypass
@@ -198,6 +164,7 @@ jobs:
 
           cat >> $DEFCONFIG <<-'EOF'
           # Core Bootability & Performance
+          CONFIG_LOG_BUF_SHIFT=21
           CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
           CONFIG_RUST=y
           CONFIG_ANDROID_BINDER_IPC_RUST=m
@@ -252,18 +219,12 @@ jobs:
           CONFIG_KSU_EXTRAS=y
           CONFIG_KSU_LSM_SECURITY_HOOKS=n
           CONFIG_KSU_TAMPER_SYSCALL_TABLE=n
-          CONFIG_KSU_SUSFS=n
           EOF
           elif [ "${{ matrix.variant }}" = "kowsu" ]; then
-            echo "CONFIG_KSU=y" >> $DEFCONFIG
-            if [[ "${{ env.ENABLE_SUSFS }}" == "true" ]]; then
-              echo "CONFIG_KSU_SUSFS=y" >> $DEFCONFIG
-              echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> $DEFCONFIG
-            else
-              echo "CONFIG_KSU_SUSFS=n" >> $DEFCONFIG
-            fi
-          elif [ "${{ matrix.variant }}" = "none" ]; then
-            echo "CONFIG_KSU=n" >> $DEFCONFIG
+            cat >> $DEFCONFIG <<-'EOF'
+          CONFIG_KSU=y
+          CONFIG_KPROBES=y
+          EOF
           fi
           
           # Bypass GKI Integrity Checks
@@ -274,7 +235,7 @@ jobs:
           DOT_CONFIG="kernel_workspace/common/out/.config"
           [ -f "$DOT_CONFIG" ] || DOT_CONFIG="kernel_workspace/common/arch/arm64/configs/gki_defconfig"
           echo "### 🔍 Final Config Verification ###"
-          grep -E "CONFIG_KSU|CONFIG_KSU_SUSFS|CONFIG_IP_SET|CONFIG_TCP_CONG_BBR" "$DOT_CONFIG" || true
+          grep -E "CONFIG_KSU|CONFIG_IP_SET|CONFIG_TCP_CONG_BBR|CONFIG_KPROBES" "$DOT_CONFIG" || true
 
       - name: Compile Kernel (Identity Spoofing)
         run: |
@@ -331,9 +292,7 @@ jobs:
           
           # Custom suffix for filename
           FILE_SUFFIX=""
-          if [ "${{ matrix.variant }}" = "kowsu" ] && [ "${{ env.ENABLE_SUSFS }}" = "true" ]; then
-            FILE_SUFFIX="-susfs-${{ env.SUSFS_VERSION }}"
-          elif [ "${{ matrix.variant }}" = "xxksu" ]; then
+          if [ "${{ matrix.variant }}" = "xxksu" ]; then
             FILE_SUFFIX="-nosusfs"
           fi
           
@@ -344,18 +303,12 @@ jobs:
       - name: Generate Build Summary
         run: |
           echo "## 🛠️ Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "| Kernel | Variant | KSU | SuSFS Support |" >> $GITHUB_STEP_SUMMARY
-          echo "| :--- | :--- | :--- | :--- |" >> $GITHUB_STEP_SUMMARY
-          
-          SUSFS_STATE="NO ❌"
-          if [ "${{ matrix.variant }}" = "kowsu" ] && [ "${{ env.ENABLE_SUSFS }}" = "true" ]; then
-            SUSFS_STATE="YES ✅ (${{ env.SUSFS_VERSION }})"
-          fi
-          
-          echo "| 6.12.${{ needs.setup.outputs.sub_level }} | ${{ matrix.variant }} | ${{ env.KSU_VER }} | $SUSFS_STATE |" >> $GITHUB_STEP_SUMMARY
+          echo "| Kernel | Variant | KSU |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          echo "| 6.12.${{ needs.setup.outputs.sub_level }} | ${{ matrix.variant }} | ${{ env.KSU_VER }} |" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Build Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.0
         with:
           name: kernel-${{ matrix.variant }}
           path: kernel_workspace/${{ env.ZIP_NAME }}
@@ -370,8 +323,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions: {contents: write}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
         with: {pattern: 'kernel-*', path: 'release_zips', merge-multiple: true}
       - name: Publish Release
         uses: softprops/action-gh-release@v2
@@ -383,6 +336,6 @@ jobs:
             - **Kernel Version:** `6.12.${{ needs.setup.outputs.sub_level }}`
             - **Features:** IPSet Suite, BBR Networking, KMI Bypass.
             - **Variants:**
-              - **KowSU:** Available with/without SuSFS.
-              - **xxKSU:** Always built without SuSFS (native hooks).
+              - **KowSU:** Standard Kprobes deployment.
+              - **xxKSU:** Built with native hooks.
           files: release_zips/*.zip
