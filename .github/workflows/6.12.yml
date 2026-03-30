@@ -116,7 +116,7 @@ jobs:
         if: matrix.variant == 'kowsu' && env.ENABLE_SUSFS == 'true'
         run: |
           SUSFS_DIR="${{ github.workspace }}/susfs4ksu"
-          git clone --depth=1 --branch=gki-android16-6.12-dev https://gitlab.com/simonpunk/susfs4ksu "$SUSFS_DIR"
+          git clone --depth=1 --branch=gki-android16-6.12 https://gitlab.com/simonpunk/susfs4ksu "$SUSFS_DIR"
           echo "SUSFS_DIR=$SUSFS_DIR" >> $GITHUB_ENV
           SUSFS_VERSION=$(grep -m1 'define SUSFS_VERSION' "$SUSFS_DIR/kernel_patches/include/linux/susfs.h" | sed 's/.*"\(.*\)"/\1/')
           echo "SUSFS_VERSION=${SUSFS_VERSION:-unknown}" >> $GITHUB_ENV
