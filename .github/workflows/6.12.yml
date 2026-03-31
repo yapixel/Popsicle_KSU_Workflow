@@ -153,7 +153,7 @@ jobs:
           cd kernel_workspace/common
           sed -i '/bad_version:/,/^}/ s/return 0;/return 1;/' kernel/module/version.c
 
-      - name: Inject Defconfig Flags (IPSet + BBR + KSU Isolation)
+            - name: Inject Defconfig Flags (IPSet + BBR + KSU Isolation)
         run: |
           cd kernel_workspace
           DEFCONFIG="./common/arch/arm64/configs/gki_defconfig"
@@ -180,9 +180,6 @@ jobs:
           CONFIG_TCP_CONG_ADVANCED=y
           CONFIG_TCP_CONG_BBR=y
           CONFIG_NET_SCH_FQ=y
-          # CONFIG_TCP_CONG_BIC is not set
-          # CONFIG_TCP_CONG_WESTWOOD is not set
-          # CONFIG_TCP_CONG_HTCP is not set
 
           # IPSet Support (Full Suite)
           CONFIG_IP_SET=y
@@ -205,20 +202,22 @@ jobs:
           CONFIG_IP_SET_HASH_NETIFACE=y
           CONFIG_IP_SET_LIST_SET=y
 
-          # TProxy & REDIRECT Targets
-           CONFIG_NETFILTER_XT_TARGET_TPROXY=y
-          CONFIG_NETFILTER_XT_TARGET_REDIRECT=y
-          CONFIG_NETFILTER_XT_MATCH_SOCKET=y
-          CONFIG_NETFILTER_XT_MATCH_MARK=y
-                    # TProxy & REDIRECT Targets + Essential Matches
+          # TProxy, REDIRECT, & Essential Matches
           CONFIG_NETFILTER_XT_TARGET_TPROXY=y
           CONFIG_NETFILTER_XT_TARGET_REDIRECT=y
           CONFIG_NETFILTER_XT_MATCH_SOCKET=y
           CONFIG_NETFILTER_XT_MATCH_MARK=y
-          CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y # Fixes the warning in atp logs
+          CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
           CONFIG_NETFILTER_XT_MATCH_IPRANGE=y
-          CONFIG_NETFILTER_XT_MATCH_OWNER=y    # Helpful for per-app proxy logic
+          CONFIG_NETFILTER_XT_MATCH_OWNER=y
+          CONFIG_NETFILTER_XT_MATCH_MAC=y
 
+          # CRITICAL for tproxy.sh stateful inspection
+          CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y
+
+          # Required for IPv6 DNS Hijack and REDIRECT modes
+          CONFIG_IP6_NF_NAT=y
+          CONFIG_IP6_NF_TARGET_REDIRECT=y
           EOF
 
           # Variant-Specific KSU Logic
@@ -238,6 +237,7 @@ jobs:
           
           # Bypass GKI Integrity Checks
           sed -i 's/check_defconfig//' ./common/build.config.gki || true
+
 
       - name: Verify Kernel Configuration (Debug Menu)
         run: |
