@@ -211,11 +211,10 @@ jobs:
           CONFIG_NETFILTER_XT_MATCH_IPRANGE=y
           CONFIG_NETFILTER_XT_MATCH_OWNER=y
           CONFIG_NETFILTER_XT_MATCH_MAC=y
-          # CRITICAL for tproxy.sh stateful inspection (Linux 6.x+ compatible)
           CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y
           CONFIG_NETFILTER_XT_MARK=y
           CONFIG_NETFILTER_XT_CONNMARK=y
-
+          CONFIG_NETFILTER_XT_TARGET_CONNMARK=y
 
           # Required for IPv6 DNS Hijack and REDIRECT modes
           CONFIG_IP6_NF_NAT=y
@@ -240,29 +239,22 @@ jobs:
           # Bypass GKI Integrity Checks
           sed -i 's/check_defconfig//' ./common/build.config.gki || true
 
-
-      - name: Verify Kernel Configuration (Debug Menu)
+      - name: Verify Kernel Configuration (Fixed Logic)
         run: |
-          # Use the actual generated .config if available, otherwise fallback to defconfig
-          DOT_CONFIG="kernel_workspace/common/out/.config"
-          [ -f "$DOT_CONFIG" ] || DOT_CONFIG="kernel_workspace/common/arch/arm64/configs/gki_defconfig"
-          
+          DEFCONFIG="kernel_workspace/common/arch/arm64/configs/gki_defconfig"
           echo "### 🔍 Final Config Verification ###"
           
-          # List of critical flags required for the transparent proxy script
+          # List of critical flags (base names only, no =y)
           CRITICAL_FLAGS=(
             "CONFIG_KSU"
-            "CONFIG_NETFILTER_XT_TARGET_MARK=y"
-            "CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y"
-            "CONFIG_NETFILTER_XT_MARK=y"
-            "CONFIG_NETFILTER_XT_CONNMARK=y"
-            "CONFIG_NETFILTER_XT_TARGET_CONNMARK=y"
-            "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
-            "CONFIG_NETFILTER_XT_TARGET_TPROXY=y"
-            "CONFIG_NETFILTER_XT_TARGET_REDIRECT"
+            "CONFIG_NETFILTER_XT_TARGET_MARK"
             "CONFIG_NETFILTER_XT_MATCH_CONNTRACK"
             "CONFIG_NETFILTER_XT_MARK"
             "CONFIG_NETFILTER_XT_CONNMARK"
+            "CONFIG_NETFILTER_XT_TARGET_CONNMARK"
+            "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE"
+            "CONFIG_NETFILTER_XT_TARGET_TPROXY"
+            "CONFIG_NETFILTER_XT_TARGET_REDIRECT"
             "CONFIG_IP6_NF_NAT"                   
             "CONFIG_IP6_NF_TARGET_REDIRECT"       
             "CONFIG_IP_SET"
@@ -271,8 +263,10 @@ jobs:
 
           MISSING_FLAGS=0
           for FLAG in "${CRITICAL_FLAGS[@]}"; do
-            if grep -q "$FLAG=y" "$DOT_CONFIG" || grep -q "$FLAG=m" "$DOT_CONFIG"; then
-              echo "✅ $FLAG is ENABLED"
+            # Check for =y or =m using Regex
+            if grep -qE "^${FLAG}=[ym]$" "$DEFCONFIG"; then
+              VALUE=$(grep -E "^${FLAG}=" "$DEFCONFIG" | cut -d= -f2)
+              echo "✅ $FLAG is ENABLED (value: $VALUE)"
             else
               echo "❌ $FLAG is MISSING!"
               MISSING_FLAGS=$((MISSING_FLAGS + 1))
@@ -281,32 +275,23 @@ jobs:
 
           if [ "$MISSING_FLAGS" -gt 0 ]; then
             echo "::error::🚨 $MISSING_FLAGS critical networking flags are missing. The transparent proxy will not work!"
-            echo "Failing the build to prevent compiling a broken kernel."
             exit 1
-          else
-            echo "All critical networking and proxy flags are successfully injected!"
           fi
-
-
 
       - name: Compile Kernel (Identity Spoofing)
         run: |
           WORKDIR="$(pwd)"
-          # Set toolchain paths
           export PATH="$WORKDIR/kernel_workspace/clang19/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
           export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/clang19/bin/clang"
           
           cd kernel_workspace/common
 
-          # 1. Create Spoofed CC Wrapper
-          # This intercepts 'clang --version' to return the Google toolchain string
           cat > cc-wrapper <<-'EOF'
           #!/bin/bash
           if [[ "$*" == *"--version"* ]]; then
               echo "Android (14043575, +pgo, +bolt, +lto, +mlgo, based on r536225) clang version 19.0.1 (https://android.googlesource.com/toolchain/llvm-project b3a530ec6537146650e42be89f1089e9a3588460), LLD 19.0.1"
               exit 0
           fi
-          # Maintain faketime/fakestat for consistency
           export LD_PRELOAD="$(pwd)/libfakestat.so $(pwd)/libfaketimeMT.so"
           export FAKESTAT="2025-09-12 04:57:41"
           export FAKETIME="@2025-09-12 04:57:41"
@@ -314,14 +299,10 @@ jobs:
           EOF
           chmod +x cc-wrapper
 
-          # 2. Set KBUILD Environment Variables
-          
           export KBUILD_BUILD_USER="kleaf"
           export KBUILD_BUILD_HOST="build-host"
           export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
           export KBUILD_BUILD_VERSION="1" 
-
-          # 3. Standard GKI Build Variables
           export ARCH=arm64
           export LLVM=1
           export LLVM_IAS=1
@@ -329,7 +310,6 @@ jobs:
           export CC="$(pwd)/cc-wrapper"
           export LD=ld.lld
 
-          # 4. Build Execution
           make -j$(nproc --all) O=out gki_defconfig
           make -j$(nproc --all) O=out Image
 
@@ -342,11 +322,8 @@ jobs:
           git clone https://github.com/yapixel/AnyKernel3 --depth=1
           cp "$IMAGE" ./AnyKernel3/ && cd AnyKernel3
           
-          # Custom suffix for filename
           FILE_SUFFIX=""
-          if [ "${{ matrix.variant }}" = "xxksu" ]; then
-            FILE_SUFFIX="-nosusfs"
-          fi
+          [ "${{ matrix.variant }}" = "xxksu" ] && FILE_SUFFIX="-nosusfs"
           
           ZIP_NAME="${{ matrix.variant }}_popsicle_6.12.${{ needs.setup.outputs.sub_level }}-${{ env.KSU_VER }}${FILE_SUFFIX}.zip"
           zip -r9 "../$ZIP_NAME" *
