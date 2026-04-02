@@ -112,6 +112,11 @@ jobs:
             "xxksu") git clone --depth=1 --branch master https://github.com/backslashxx/KernelSU.git KernelSU ;;
           esac
           ln -sf ../KernelSU/kernel drivers/kernelsu
+          # Expose KernelSU's top-level uapi/ — KowSU only
+          if [ "${{ matrix.variant }}" = "kowsu" ]; then
+            grep -q 'uapi' KernelSU/kernel/Makefile || \
+              echo 'ccflags-y += -I$(srctree)/$(src)/../uapi' >> KernelSU/kernel/Makefile
+          fi
           [ ! -z "$(grep 'obj-$(CONFIG_KSU)' drivers/Makefile)" ] || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
           sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
