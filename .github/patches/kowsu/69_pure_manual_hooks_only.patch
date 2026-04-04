@@ -27,7 +27,7 @@
  		.is_compat = true,
  		.ptr.compat = __envp,
  	};
-+#ifdef CONFIG_KSU // 32-bit ksud and 32-on-64 support
++#ifdef CONFIG_KSU
 +	int fd = AT_FDCWD;
 +	int flags = 0;
 +	ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
