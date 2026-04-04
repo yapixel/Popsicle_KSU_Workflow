@@ -1,8 +1,8 @@
 --- a/fs/exec.c
 +++ b/fs/exec.c
-@@ -1071,6 +1071,12 @@ static int bprm_stack_limits(struct linux_binprm *bprm)
- 	return bprm_set_stack_limit(bprm, limit);
- }
+@@ -107,6 +107,12 @@
+ #include <trace/events/sched.h>
+ #include <trace/hooks/sched.h>
  
 +#ifdef CONFIG_KSU
 +__attribute__((hot))
@@ -10,12 +10,10 @@
 +				void *argv, void *envp, int *flags);
 +#endif
 +
- /*
-  * 'copy_strings()' copies argument/environment strings from the old
-  * processes's memory to the new process's stack.  The call to get_user_pages()
-@@ -1341,10 +1347,14 @@ static int do_execve(struct filename *filename,
- 	const char __user *const __user *__argv,
- 	const char __user *const __user *__envp)
+ static int bprm_creds_from_file(struct linux_binprm *bprm);
+ 
+ int suid_dumpable = 0;
+@@ -1341,6 +1347,9 @@
  {
  	struct user_arg_ptr argv = { .ptr.native = __argv };
  	struct user_arg_ptr envp = { .ptr.native = __envp };
@@ -25,15 +23,7 @@
  	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
  }
  
- static int do_execveat(int fd, struct filename *filename,
- 		const char __user *const __user *__argv,
-@@ -1363,10 +1373,13 @@ static int compat_do_execve(struct filename *filename,
- {
- 	struct user_arg_ptr argv = {
- 		.is_compat = true,
- 		.ptr.compat = __argv,
- 	};
- 	struct user_arg_ptr envp = {
+@@ -1363,6 +1372,9 @@
  		.is_compat = true,
  		.ptr.compat = __envp,
  	};
@@ -44,7 +34,7 @@
  }
 --- a/fs/open.c
 +++ b/fs/open.c
-@@ -400,6 +400,12 @@ long do_faccessat(int dfd, const char __user *filename, int mode, int flags)
+@@ -400,6 +400,12 @@
  	return error;
  }
  
@@ -63,7 +53,7 @@
  }
 --- a/fs/stat.c
 +++ b/fs/stat.c
-@@ -147,6 +147,12 @@ int vfs_fstat(unsigned int fd, struct kstat *stat)
+@@ -147,6 +147,12 @@
  }
  EXPORT_SYMBOL(vfs_fstat);
  
@@ -76,7 +66,7 @@
  static int vfs_statx_path(struct path *path, int flags, struct kstat *stat,
  			  u32 request_mask)
  {
-@@ -194,6 +200,12 @@ SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
+@@ -194,6 +200,9 @@
  	struct kstat stat;
  	int error;
  
@@ -86,7 +76,7 @@
  	error = vfs_fstatat(dfd, filename, &stat, flag);
  	if (error)
  		return error;
-@@ -350,6 +362,14 @@ SYSCALL_DEFINE2(newlstat, const char __user *, filename,
+@@ -350,6 +359,14 @@
  	return cp_new_stat(&stat, statbuf);
  }
  
@@ -100,7 +90,7 @@
  SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)
  {
  	struct kstat stat;
-@@ -357,6 +377,9 @@ SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)
+@@ -357,6 +374,9 @@
  
  	if (!error)
  		error = cp_new_stat(&stat, statbuf);
@@ -110,7 +100,7 @@
  
  	return error;
  }
-@@ -490,6 +513,9 @@ SYSCALL_DEFINE2(fstat64, unsigned long, fd, struct stat64 __user *, statbuf)
+@@ -490,6 +510,9 @@
  
  	if (!error)
  		error = cp_new_stat64(&stat, statbuf);
@@ -122,7 +112,7 @@
  }
 --- a/kernel/reboot.c
 +++ b/kernel/reboot.c
-@@ -345,6 +345,10 @@ static int kmsg_dump_flush_time_ms = 1000;
+@@ -345,6 +345,10 @@
  /*
   * reboot doesn't sync: do that yourself before calling this.
   */
@@ -133,7 +123,7 @@
  SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
  		void __user *, arg)
  {
-@@ -352,6 +356,10 @@ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
+@@ -352,6 +356,10 @@
  	char buffer[256];
  	int ret = 0;
  
