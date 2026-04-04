@@ -63,7 +63,7 @@ jobs:
 
   build:
     needs: setup
-    runs-runs-on: ubuntu-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 300
     strategy:
       fail-fast: false
@@ -77,7 +77,7 @@ jobs:
 
     steps:
       - name: Checkout Source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           clean: false
 
@@ -149,7 +149,6 @@ jobs:
         if: matrix.variant == 'xxksu'
         run: |
           cd kernel_workspace/common
-          # Define healer is already in steps, calling python logic directly
           cat > heal_patch.py << 'PYEOF'
           import sys
           with open(sys.argv[1], 'r', encoding='utf-8') as f: lines = f.read().splitlines()
@@ -172,12 +171,10 @@ jobs:
         if: matrix.variant == 'kowsu+susfs'
         run: |
           cd kernel_workspace/common
-          # Kernel-side (50-)
           cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" fs/
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs.h" include/linux/
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" include/linux/
           patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
-          # KSU-side (10-)
           cd KernelSU
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
 
@@ -282,7 +279,7 @@ jobs:
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: Store Build Artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: kernel-${{ matrix.variant }}
           path: kernel_workspace/${{ env.ZIP_NAME }}
@@ -296,9 +293,9 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
       - name: Fetch Artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           pattern: kernel-*
           path: release_zips
