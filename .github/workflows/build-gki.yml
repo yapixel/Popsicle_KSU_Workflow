@@ -139,36 +139,38 @@ jobs:
           REPO="KOWX712"
           [[ "${{ matrix.variant }}" == "xxksu" ]] && REPO="backslashxx"
           
-          # Clone KernelSU
+          # 1. Clone the specific KernelSU fork
           git clone --depth=1 https://github.com/$REPO/KernelSU.git KernelSU
           
-          # Standard KernelSU Integration
+          # 2. Standard GKI Linkage
           ln -sf ../KernelSU/kernel drivers/kernelsu
           if ! grep -q "kernelsu/" drivers/Makefile; then echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile; fi
           if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig; fi
 
-          # --- FIX: Header Resolution for KowSU/xxksu ---
+          # 3. Apply KowSU Header Fixes (Required for klog.h and uapi errors)
+          # These subdirs are common across KowSU/xxksu versions
+          KSU_SUBDIRS="core feature hook infra manager policy runtime selinux sulog supercall"
           
-          # 1. Fix klog.h, arch.h, ksu.h (Symlink into subdirs)
-          for subdir in core feature hook infra manager policy runtime selinux sulog supercall; do
+          for subdir in $KSU_SUBDIRS; do
             dir="KernelSU/kernel/${subdir}"
             [ -d "$dir" ] || continue
+            # Fix local header lookups
             ln -sf ../include/klog.h  "$dir/klog.h"
             ln -sf ../include/arch.h  "$dir/arch.h"
             ln -sf ../include/ksu.h   "$dir/ksu.h"
           done
 
-          # 2. Fix uapi/app_profile.h
+          # 4. Fix uapi/app_profile.h structure
           mkdir -p KernelSU/kernel/include/uapi
           ln -sf ../../policy/app_profile.h KernelSU/kernel/include/uapi/app_profile.h
           
-          # Symlink the newly created uapi folder into all subdirs
-          for subdir in core feature hook infra manager policy runtime selinux sulog supercall; do
+          # Link the created uapi folder into all subdirs so they can #include "uapi/..."
+          for subdir in $KSU_SUBDIRS; do
             dir="KernelSU/kernel/${subdir}"
             [ -d "$dir" ] || continue
             ln -sfn ../include/uapi "$dir/uapi"
           done
-          # ----------------------------------------------
+
 
       - name: Resolve KernelSU Version
         run: |
