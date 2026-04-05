@@ -70,7 +70,7 @@ jobs:
 
     steps:
       - name: Checkout Source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           clean: false
 
@@ -150,32 +150,40 @@ jobs:
           if ! grep -q "kernelsu/" drivers/Makefile; then echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile; fi
           if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig; fi
 
-          # 4. KowSU-Specific Deep Header Fix (Applies to Stock and SuSFS variants)
+          # 4. KowSU/SuSFS Global Header Injection
           if [[ "${{ matrix.variant }}" == "kowsu" || "${{ matrix.variant }}" == "kowsu+susfs" ]]; then
-            echo "Applying Absolute Path Header Fix for KowSU Subsystem..."
+            echo "Applying Global Header Injection for KowSU subsystem..."
             
-            # Use absolute workspace paths to ensure O=out builds can't miss them
-            COMMON_DIR=$(pwd)
-            KSU_DIR="${COMMON_DIR}/drivers/kernelsu"
-            
-            # Step A: Create and populate the uapi directory physically
-            # This fixes 'uapi/feature.h' and 'uapi/app_profile.h' missing errors
-            mkdir -p "${KSU_DIR}/include/uapi"
-            cp KernelSU/kernel/policy/*.h "${KSU_DIR}/include/uapi/"
-            
-            # Step B: Copy core headers to the root for local lookups
-            # This fixes relative #include "file.h" calls
-            cp KernelSU/kernel/include/*.h "${KSU_DIR}/"
-
-            # Step C: The "Nuke" Include Method
-            # Injecting flags at the very top of the Makefile for priority
-            sed -i "1i ccflags-y += -I${KSU_DIR}/include -I${KSU_DIR}" drivers/kernelsu/Makefile
-            sed -i "1i subdir-ccflags-y += -I${KSU_DIR}/include -I${KSU_DIR}" drivers/kernelsu/Makefile
-
-            # Step D: Global Kernel Include Injection
-            # Putting headers in the main include path where the compiler cannot miss them
+            # Step A: Inject uapi headers into the main kernel include tree
+            # This is the 'Nuclear Option' to fix missing definitions globally
             mkdir -p include/uapi
             cp KernelSU/kernel/policy/*.h include/uapi/
+            
+            # Step B: Inject core headers into the main kernel include tree
+            cp KernelSU/kernel/include/*.h include/
+            
+            # Step C: Subdirectory Fail-safe Symlinks
+            # This ensures every folder in the KSU tree sees headers locally
+            KSU_INC_ABS="$(realpath KernelSU/kernel/include)"
+            KSU_POL_ABS="$(realpath KernelSU/kernel/policy)"
+            
+            find KernelSU/kernel -type d | while read -r dir; do
+              [[ "$dir" == *"/include"* ]] && continue
+              ln -sf "$KSU_INC_ABS/klog.h" "$dir/klog.h"
+              ln -sf "$KSU_INC_ABS/arch.h" "$dir/arch.h"
+              ln -sf "$KSU_INC_ABS/ksu.h"  "$dir/ksu.h"
+              # Create a uapi symlink in each folder pointing to the policy folder
+              ln -sfn "$KSU_POL_ABS" "$dir/uapi"
+            done
+            
+            # Step D: Inject Build Flags for Priority Search
+            # subdir-ccflags-y ensures these paths carry into core, feature, etc.
+            {
+              echo 'ccflags-y += -I$(srctree)/drivers/kernelsu/include'
+              echo 'subdir-ccflags-y += -I$(srctree)/drivers/kernelsu/include'
+              echo 'ccflags-y += -I$(srctree)/drivers/kernelsu'
+              echo 'subdir-ccflags-y += -I$(srctree)/drivers/kernelsu'
+            } >> drivers/kernelsu/Makefile
           fi
 
       - name: Resolve KernelSU Version
@@ -317,7 +325,7 @@ jobs:
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: Store Build Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kernel-${{ matrix.variant }}
           path: kernel_workspace/${{ env.ZIP_NAME }}
@@ -331,9 +339,9 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Fetch Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: kernel-*
           path: release_zips
