@@ -279,7 +279,10 @@ jobs:
           CONFIG_KSU_SUSFS_SUS_MAP=y
           EOF
           fi
-
+      - name: Debug KSU feature enum
+        run: |
+         grep -rn "KSU_FEATURE_KERNEL_UMOUNT" $GITHUB_WORKSPACE/kernel_workspace/common/drivers/kernelsu/
+         
       - name: "Compilation: GKI Image"
         run: |
           WORKDIR="$(pwd)"
