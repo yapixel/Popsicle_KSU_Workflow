@@ -150,21 +150,20 @@ jobs:
           if ! grep -q "kernelsu/" drivers/Makefile; then echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile; fi
           if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig; fi
 
-          # 4. KowSU-Specific Fix (Stock & SuSFS)
+          # 4. KowSU-Specific Deep Physical Header Fix
           if [[ "${{ matrix.variant }}" == "kowsu" || "${{ matrix.variant }}" == "kowsu+susfs" ]]; then
-            echo "Applying Physical Header Fix for KowSU/SuSFS..."
+            echo "Applying Deep Physical Header Fix for KowSU Subsystem..."
             
-            # Step A: Physically copy UAPI headers to avoid symlink resolution issues in O=out builds
+            # Step A: Create the internal UAPI structure and copy ALL policy headers
+            # This fixes 'uapi/feature.h' and 'uapi/app_profile.h' missing errors
             mkdir -p drivers/kernelsu/include/uapi
-            cp KernelSU/kernel/policy/app_profile.h drivers/kernelsu/include/uapi/app_profile.h
+            cp KernelSU/kernel/policy/*.h drivers/kernelsu/include/uapi/
             
-            # Step B: Copy core headers into the root of kernelsu for local includes
-            cp KernelSU/kernel/include/klog.h drivers/kernelsu/klog.h
-            cp KernelSU/kernel/include/arch.h drivers/kernelsu/arch.h
-            cp KernelSU/kernel/include/ksu.h drivers/kernelsu/ksu.h
+            # Step B: Copy core headers for local includes (klog.h, arch.h, ksu.h)
+            cp KernelSU/kernel/include/*.h drivers/kernelsu/
 
-            # Step C: Inject Kbuild flags to force header search paths
-            # subdir-ccflags-y ensures flags propagate to subdirectories (core, feature, etc.)
+            # Step C: Inject Kbuild flags (Essential for standard make O=out builds)
+            # subdir-ccflags-y ensures flags propagate down to core/, feature/, hook/, etc.
             {
               echo 'ccflags-y += -I$(srctree)/drivers/kernelsu/include'
               echo 'subdir-ccflags-y += -I$(srctree)/drivers/kernelsu/include'
@@ -172,9 +171,9 @@ jobs:
               echo 'subdir-ccflags-y += -I$(srctree)/drivers/kernelsu'
             } >> drivers/kernelsu/Makefile
             
-            # Step D: Global fail-safe
+            # Step D: Global fail-safe for main kernel source and SuSFS hooks
             mkdir -p include/uapi
-            cp KernelSU/kernel/policy/app_profile.h include/uapi/app_profile.h
+            cp KernelSU/kernel/policy/*.h include/uapi/
           fi
 
       - name: Resolve KernelSU Version
@@ -209,7 +208,7 @@ jobs:
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" include/linux/
           patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
           
-          # 2. KSU-side SuSFS (Move into KernelSU folder)
+          # 2. KSU-side SuSFS (Enter KernelSU folder)
           cd KernelSU
           python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
@@ -222,7 +221,7 @@ jobs:
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/69_ksu_manual_hooks.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/69_ksu_manual_hooks.patch"
           
-          # 2. KSU Patch (Move into KernelSU folder)
+          # 2. KSU-side Patch (Enter KernelSU folder)
           cd KernelSU
           python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
