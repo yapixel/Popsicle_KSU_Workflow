@@ -136,13 +136,13 @@ jobs:
       - name: Integrate KernelSU into Source Tree
         run: |
           cd kernel_workspace/common
-          
+
           # 1. Select and Clone Repository
           case "${{ matrix.variant }}" in
             "xxksu") git clone --depth=1 --branch master https://github.com/backslashxx/KernelSU.git KernelSU ;;
             *)       git clone --depth=1 --branch master https://github.com/KOWX712/KernelSU.git KernelSU ;;
           esac
-          
+
           # 2. Link KernelSU to the drivers directory
           ln -sf ../KernelSU/kernel drivers/kernelsu
 
@@ -153,18 +153,18 @@ jobs:
           # 4. KowSU-Specific Fix (Only for KowSU variants)
           if [[ "${{ matrix.variant }}" == "kowsu" || "${{ matrix.variant }}" == "kowsu+susfs" ]]; then
             echo "Applying Header Fix for KowSU..."
-            
-            # Step A: Create the internal UAPI structure KowSU expects
-            # This makes sure KernelSU/kernel/include/uapi/app_profile.h exists
+
+            # Step A: Create the internal UAPI structure KowSU expects.
+            # Symlink target is relative to the symlink's own location
+            # (KernelSU/kernel/include/uapi/), so 3 levels up reaches
+            # KernelSU/kernel/, then down into policy/app_profile.h.
             mkdir -p KernelSU/kernel/include/uapi
-            ln -sf ../../policy/app_profile.h KernelSU/kernel/include/uapi/app_profile.h
+            ln -sf ../../../policy/app_profile.h KernelSU/kernel/include/uapi/app_profile.h
 
             # Step B: Force the compiler to look in the KernelSU include directory
-            # We inject a ccflags-y line into the KernelSU Makefile so the 
-            # compiler always finds klog.h and uapi/app_profile.h
+            # so that #include "uapi/app_profile.h" resolves correctly.
             echo 'ccflags-y += -I$(srctree)/drivers/kernelsu/include' >> drivers/kernelsu/Makefile
           fi
-
 
       - name: Resolve KernelSU Version
         run: |
