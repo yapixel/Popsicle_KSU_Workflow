@@ -192,15 +192,19 @@ jobs:
         if: matrix.variant == 'kowsu+susfs'
         run: |
           cd kernel_workspace/common
-          # Kernel-side (50-)
+          
+          # 1. Kernel-side SuSFS (Run from common/)
           cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" fs/
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs.h" include/linux/
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" include/linux/
           patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
-          # KSU-side (10-) — patch drivers/kernelsu directly (real copy, not KernelSU/ repo)
-          cd drivers/kernelsu
-          python3 ../../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
+          
+          # 2. KSU-side SuSFS (Run from KernelSU/ folder)
+          # This patch likely targets 'kernel/...' so we move into KernelSU first
+          cd KernelSU
+          python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
+
 
       - name: "Patching: KowSU Stock (Manual Hooks & Inline)"
         if: matrix.variant == 'kowsu'
