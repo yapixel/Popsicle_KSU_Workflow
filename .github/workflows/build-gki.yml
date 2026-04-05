@@ -206,13 +206,16 @@ jobs:
         if: matrix.variant == 'kowsu'
         run: |
           cd kernel_workspace/common
-          # Kernel-side Manual Hooks (69-)
+          # 1. Patch the main Kernel (using -p1 from common/)
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/69_ksu_manual_hooks.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/69_ksu_manual_hooks.patch"
-          # KSU-side Inline Supercall — patch drivers/kernelsu directly (real copy, not KernelSU/ repo)
-          cd drivers/kernelsu
-          python3 ../../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
+          
+          # 2. Patch KernelSU (Enter the KernelSU folder first)
+          cd KernelSU
+          python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
+          # Use -p1 because the patch starts with a/kernel/... and we are now above the 'kernel' folder
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
+
 
       - name: Apply KMI/Vermagic Bypass Logic
         run: |
