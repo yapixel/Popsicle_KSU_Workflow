@@ -50,7 +50,7 @@ jobs:
       - name: Sync SuSFS & xxKSU
         run: |
           # Sync SuSFS for Android 16
-          git clone --depth=1 --branch=gki-android16-6.12-dev https://gitlab.com/simonpunk/susfs4ksu susfs4ksu
+          git clone --depth=1 --branch=gki-android16-6.12 https://gitlab.com/simonpunk/susfs4ksu susfs4ksu
           echo "SUSFS_VERSION=$(grep -m1 'define SUSFS_VERSION' susfs4ksu/kernel_patches/include/linux/susfs.h | sed 's/.*\"\(.*\)\"/\1/')" >> $GITHUB_ENV
           
           # Sync xxksu (backslashxx)
@@ -73,7 +73,7 @@ jobs:
           cp ../../susfs4ksu/kernel_patches/fs/susfs.c fs/
           cp ../../susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/
           cp ../../susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/
-          patch -p1 < ../../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch
+          patch -p1 < ../../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch || true
 
           # 3. specialized xxksu SuSFS 10 Patch
           cd KernelSU
