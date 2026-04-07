@@ -1,0 +1,93 @@
+name: Build GKI for Popsicle
+
+on:
+  workflow_dispatch:
+    inputs:
+      ksu_variant:
+        description: 'KernelSU variant to build'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - kowsu+susfs
+          - kowsu
+          - xxksu
+      sub_level:
+        description: 'Kernel sublevel (e.g. 23 for 6.12.23)'
+        required: true
+        default: '23'
+        type: string
+      create_release:
+        description: 'Publish a GitHub Release'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  # 1. SETUP
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.config.outputs.release_tag }}
+    steps:
+      - id: config
+        run: echo "release_tag=$(date +'%y%m%d')" >> $GITHUB_OUTPUT
+
+  # 2. TRIGGER SUSFS BUILD
+  build_susfs:
+    needs: setup
+    if: inputs.ksu_variant == 'all' || inputs.ksu_variant == 'kowsu+susfs'
+    uses: ./.github/workflows/build-susfs.yml
+    with:
+      sub_level: ${{ inputs.sub_level }}
+
+  # 3. TRIGGER KOWSU BUILD
+  build_kowsu:
+    needs: setup
+    if: inputs.ksu_variant == 'all' || inputs.ksu_variant == 'kowsu'
+    uses: ./.github/workflows/build-kowsu.yml
+    with:
+      sub_level: ${{ inputs.sub_level }}
+
+  # 4. TRIGGER XXKSU BUILD
+  build_xxksu:
+    needs: setup
+    if: inputs.ksu_variant == 'all' || inputs.ksu_variant == 'xxksu'
+    uses: ./.github/workflows/build-xxksu.yml
+    with:
+      sub_level: ${{ inputs.sub_level }}
+
+  # 5. RELEASE
+  release:
+    needs: [setup, build_susfs, build_kowsu, build_xxksu]
+    if: |
+      always() && 
+      inputs.create_release == true &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: 'kernel-*'
+          path: release_zips
+          merge-multiple: true
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "${{ needs.setup.outputs.release_tag }}"
+          name: "GKI 6.12.${{ inputs.sub_level }} — ${{ needs.setup.outputs.release_tag }}"
+          body: |
+            ## 🚀 Popsicle GKI Release
+            - **Kernel Version:** `6.12.${{ inputs.sub_level }}`
+            - **Features:** IPSet Suite, BBR Networking, KMI Bypass.
+            - **Variants:** Built via modular workflow pipeline.
+          files: release_zips/*.zip
