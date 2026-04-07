@@ -59,26 +59,27 @@ jobs:
           
           ln -sf ../KernelSU/kernel drivers/kernelsu
           grep -q "kernelsu" drivers/Makefile || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
-          grep -q "kernelsu" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
           
           cp -r KernelSU/uapi KernelSU/kernel/uapi 2>/dev/null || true
           echo 'ccflags-y += -I$(srctree)/drivers/kernelsu' >> drivers/kernelsu/Makefile
           
+          # Enable SuSFS support in KowSU via CFLAGS instead of broken patches
+          echo 'ccflags-y += -DCONFIG_KSU_SUSFS' >> drivers/kernelsu/Makefile
+
           mkdir -p include/uapi
           cp -f KernelSU/kernel/policy/*.h include/uapi/ 2>/dev/null || true
           cp -f KernelSU/kernel/policy/*.h include/ 2>/dev/null || true
           cp -f KernelSU/kernel/include/*.h include/ 2>/dev/null || true
           cp -f KernelSU/kernel/uapi/*.h include/uapi/ 2>/dev/null || true
 
-      - name: "Patching: KowSU + SuSFS (10+50 Logic)"
+      - name: "Patching: Kernel-side SuSFS"
         run: |
           cd kernel_workspace/common
           cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" fs/
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs.h" include/linux/
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" include/linux/
           patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
-          cd KernelSU
-          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
 
       - name: Apply KMI Bypass
         run: |
