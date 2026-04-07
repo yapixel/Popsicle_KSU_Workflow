@@ -1,0 +1,150 @@
+name: Module - Build SuSFS
+
+on:
+  workflow_call:
+    inputs:
+      sub_level:
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      ANDROID_VERSION: 'android16'
+      KERNEL_VERSION: '6.12'
+
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+        with:
+          clean: false
+
+      - name: Free Disk Space & Install Dependencies
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune -af 2>/dev/null || true
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            binutils python-is-python3 libssl-dev libelf-dev libdw-dev \
+            curl bison flex make git perl gcc bc zip unzip aria2
+
+      - name: Initialize Workspace & Toolchains
+        run: |
+          mkdir -p kernel_workspace && cd kernel_workspace
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/android_gki_kernel_common/archive/refs/heads/android16-6.12-2025-06.zip -o common.zip
+          unzip -q common.zip && mv "android_gki_kernel_common-android16-6.12-2025-06" common && rm common.zip
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip -o clang.zip
+          unzip -q clang.zip -d clang19 && rm clang.zip
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip
+          unzip -q rust.zip -d rust && rm rust.zip
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip
+          unzip -q build-tools.zip && rm build-tools.zip
+          sed -i 's/ -dirty//g' common/scripts/setlocalversion
+
+      - name: Sync SuSFS Source
+        run: |
+          SUSFS_DIR="${{ github.workspace }}/susfs4ksu"
+          git clone --depth=1 --branch=gki-android16-6.12-dev https://gitlab.com/simonpunk/susfs4ksu "$SUSFS_DIR"
+          echo "SUSFS_DIR=$SUSFS_DIR" >> $GITHUB_ENV
+          SUSFS_VERSION=$(grep -m1 'define SUSFS_VERSION' "$SUSFS_DIR/kernel_patches/include/linux/susfs.h" | sed 's/.*"\(.*\)"/\1/')
+          echo "SUSFS_VERSION=${SUSFS_VERSION:-unknown}" >> $GITHUB_ENV
+
+      - name: Setup KernelSU Variant (KowSU)
+        run: |
+          cd kernel_workspace/common
+          rm -rf KernelSU drivers/kernelsu KernelSU-Next
+          git clone --depth=1 --branch=master https://github.com/KOWX712/KernelSU.git KernelSU
+          
+          ln -sf ../KernelSU/kernel drivers/kernelsu
+          grep -q "kernelsu" drivers/Makefile || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+          grep -q "kernelsu" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          
+          cp -r KernelSU/uapi KernelSU/kernel/uapi 2>/dev/null || true
+          echo 'ccflags-y += -I$(srctree)/drivers/kernelsu' >> drivers/kernelsu/Makefile
+          
+          mkdir -p include/uapi
+          cp -f KernelSU/kernel/policy/*.h include/uapi/ 2>/dev/null || true
+          cp -f KernelSU/kernel/policy/*.h include/ 2>/dev/null || true
+          cp -f KernelSU/kernel/include/*.h include/ 2>/dev/null || true
+          cp -f KernelSU/kernel/uapi/*.h include/uapi/ 2>/dev/null || true
+
+      - name: "Patching: KowSU + SuSFS (10+50 Logic)"
+        run: |
+          cd kernel_workspace/common
+          cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" fs/
+          cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs.h" include/linux/
+          cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" include/linux/
+          patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
+          cd KernelSU
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
+
+      - name: Apply KMI Bypass
+        run: |
+          cd kernel_workspace/common
+          sed -i '/bad_version:/,/^}/ s/return 0;/return 1;/' kernel/module/version.c
+
+     - name: Inject Defconfig Flags
+        uses: ./.github/actions/kernel-config
+        with:
+          defconfig_path: "kernel_workspace/common/arch/arm64/configs/gki_defconfig"
+          build_config_path: "kernel_workspace/common/build.config.gki"
+          variant: "kowsu+susfs"
+          enable_susfs: "true"
+
+      - name: Compile Kernel (Identity Spoofing)
+        run: |
+          WORKDIR="$(pwd)"
+          export PATH="$WORKDIR/kernel_workspace/clang19/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
+          export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/clang19/bin/clang"
+          
+          cd kernel_workspace/common
+
+          cat > cc-wrapper <<-'EOF'
+          #!/bin/bash
+          if [[ "$*" == *"--version"* ]]; then
+              echo "Android (14043575, +pgo, +bolt, +lto, +mlgo, based on r536225) clang version 19.0.1 (https://android.googlesource.com/toolchain/llvm-project b3a530ec6537146650e42be89f1089e9a3588460), LLD 19.0.1"
+              exit 0
+          fi
+          export LD_PRELOAD="$(pwd)/libfakestat.so $(pwd)/libfaketimeMT.so"
+          export FAKESTAT="2025-09-12 04:57:41"
+          export FAKETIME="@2025-09-12 04:57:41"
+          exec "$REAL_CLANG_PATH" "$@"
+          EOF
+          chmod +x cc-wrapper
+
+          export KBUILD_BUILD_USER="kleaf"
+          export KBUILD_BUILD_HOST="build-host"
+          export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
+          export KBUILD_BUILD_VERSION="1" 
+          export ARCH=arm64
+          export LLVM=1
+          export LLVM_IAS=1
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CC="$(pwd)/cc-wrapper"
+          export LD=ld.lld
+
+          make -j$(nproc --all) O=out gki_defconfig
+          make -j$(nproc --all) O=out Image
+
+      - name: Package & Boot-Ready Check
+        run: |
+          cd kernel_workspace
+          IMAGE="./common/out/arch/arm64/boot/Image"
+          [ -f "$IMAGE" ] || (echo "Binary Missing!" && exit 1)
+          
+          git clone https://github.com/yapixel/AnyKernel3 --depth=1
+          cp "$IMAGE" ./AnyKernel3/ && cd AnyKernel3
+          
+          BUILD_DATE="$(date +'%y%m%d')"
+          ZIP_NAME="kowsu+susfs_popsicle_6.12.${{ inputs.sub_level }}-${BUILD_DATE}-susfs-${{ env.SUSFS_VERSION }}.zip"
+          
+          zip -r9 "../$ZIP_NAME" *
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: kernel-kowsu-susfs
+          path: kernel_workspace/${{ env.ZIP_NAME }}
