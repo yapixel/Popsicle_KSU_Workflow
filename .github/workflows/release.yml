@@ -1,0 +1,109 @@
+name: 🚀 Release · Publish Artifacts
+
+on:
+  workflow_call:
+    inputs:
+      ksu_variant:
+        required: true
+        type: string
+      sub_level:
+        required: true
+        type: string
+      release_tag:
+        required: true
+        type: string
+      kernel_ver:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 🏷️ Publish · ${{ inputs.kernel_ver }} · ${{ inputs.release_tag }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: 📦 Download Build Artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: 'kernel-*'
+          path: release_zips
+          merge-multiple: true
+
+      - name: 📝 Compose Release Body
+        run: |
+          VARIANT="${{ inputs.ksu_variant }}"
+          KV="${{ inputs.kernel_ver }}"
+
+          ROWS=""
+
+          if [[ "$VARIANT" == "all" || "$VARIANT" == "kowsu+susfs" ]]; then
+            ROWS+="| **KowSU + SuSFS** | [KOWX712/KernelSU](https://github.com/KOWX712/KernelSU) | [simonpunk/susfs4ksu · gki-android16-6.12](https://github.com/simonpunk/susfs4ksu/tree/gki-android16-6.12) |\n"
+          fi
+
+          if [[ "$VARIANT" == "all" || "$VARIANT" == "kowsu" ]]; then
+            ROWS+="| **KowSU** | [KOWX712/KernelSU](https://github.com/KOWX712/KernelSU) | N/A |\n"
+          fi
+
+          if [[ "$VARIANT" == "all" || "$VARIANT" == "xxksu" ]]; then
+            ROWS+="| **xxKSU** | [backslashxx/KernelSU](https://github.com/backslashxx/KernelSU) | N/A |\n"
+          fi
+
+          cat <<RELEASE_BODY > release_body.md
+          ## 📱 Popsicle GKI Kernel — \`${KV}\`
+          > **Device:** Xiaomi Popsicle · SM8850 (Snapdragon 8 Elite)
+          > **Android:** 16 · GKI \`${KV}\`
+          > **Built:** \`$(date -u +'%Y-%m-%d %H:%M UTC')\`
+
+          ---
+
+          ### 🧩 Variants Shipped
+
+          | Variant | KernelSU Source | SuSFS Source |
+          |---------|----------------|--------------|
+          $(echo -e "$ROWS")
+          ---
+
+          ### ✨ Features
+
+          | Feature | Details |
+          |---------|---------|
+          | 🔒 Root Solution | KernelSU (variant-dependent, see above) |
+          | 📂 SuSFS | Filesystem-level su hiding (KowSU + SuSFS variant only) |
+          | 🌐 Networking | BBR congestion control · IPSet suite |
+          | 🔑 KMI | KMI bypass for extended module compatibility |
+          | 📦 Format | AnyKernel3 flashable \`.zip\` |
+
+          ---
+
+          ### 📲 Installation
+
+          1. Boot into a custom recovery (e.g. TWRP) **or** use a root-capable flasher
+          2. Flash the \`.zip\` matching your desired variant
+          3. Reboot and verify root via the KernelSU app
+
+          > ⚠️ **Back up your current boot image before flashing.**
+          > This kernel is provided as-is, without warranty of any kind.
+
+          ---
+
+          ### 🔗 References
+
+          - [KOWX712/KernelSU](https://github.com/KOWX712/KernelSU)
+          - [backslashxx/KernelSU](https://github.com/backslashxx/KernelSU)
+          - [simonpunk/susfs4ksu](https://github.com/simonpunk/susfs4ksu)
+          - [osm0sis/AnyKernel3](https://github.com/osm0sis/AnyKernel3)
+          RELEASE_BODY
+
+      - name: 🏷️ Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "${{ inputs.release_tag }}"
+          name: "🌟 Popsicle GKI ${{ inputs.kernel_ver }} · ${{ inputs.release_tag }}"
+          body_path: release_body.md
+          files: release_zips/*.zip
