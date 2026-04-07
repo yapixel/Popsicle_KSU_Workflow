@@ -85,7 +85,7 @@ jobs:
           cd kernel_workspace/common
           sed -i '/bad_version:/,/^}/ s/return 0;/return 1;/' kernel/module/version.c
 
-     - name: Inject Defconfig Flags
+      - name: Inject Defconfig Flags
         uses: ./.github/actions/kernel-config
         with:
           defconfig_path: "kernel_workspace/common/arch/arm64/configs/gki_defconfig"
