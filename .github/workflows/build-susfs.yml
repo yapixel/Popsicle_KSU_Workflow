@@ -82,7 +82,7 @@ jobs:
           patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
 
           # 2. KSU-side SuSFS
-          cd kernel_workspace/common/driver/KernelSU
+          cd kernel_workspace/common/KernelSU
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
 
       - name: Apply KMI Bypass
