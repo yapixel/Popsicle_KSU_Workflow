@@ -80,8 +80,8 @@ jobs:
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs.h" include/linux/
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" include/linux/
           #patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
-          patch -p1 < "${{ github.workspace }}/.github/patches/kowsu/50_add_susfs_in_gki-android14-6.1.patch
-          patch -p1 < "${{ github.workspace }}/.github/patches/kowsu/60_fix_namespace.patch
+          patch -p1 < "${{ github.workspace }}/.github/patches/kowsu/50_add_susfs_in_gki-android14-6.1.patch"
+          patch -p1 < "${{ github.workspace }}/.github/patches/kowsu/60_fix_namespace.patch"
           
 
 
