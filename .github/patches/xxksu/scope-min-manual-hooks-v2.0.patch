@@ -1,6 +1,6 @@
 --- a/fs/exec.c
 +++ b/fs/exec.c
-@@ -1886,12 +1886,26 @@ static int do_execveat_common(int fd, struct filename *filename,
+@@ -2054,6 +2054,12 @@ int kernel_execve(const char *kernel_filename,
  	return retval;
  }
  
@@ -10,9 +10,10 @@
 +				void *argv, void *envp, int *flags);
 +#endif
 +
- int do_execve(struct filename *filename,
+ static int do_execve(struct filename *filename,
  	const char __user *const __user *__argv,
  	const char __user *const __user *__envp)
+@@ -2060,6 +2066,10 @@ static int do_execve(struct filename *filename,
  {
  	struct user_arg_ptr argv = { .ptr.native = __argv };
  	struct user_arg_ptr envp = { .ptr.native = __envp };
@@ -20,8 +21,9 @@
 +	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
 +#endif
  	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
- } 
-@@ -1919,6 +1933,10 @@ static int compat_do_execve(struct filename *filename,
+ }
+ 
+@@ -2086,6 +2096,10 @@ static int compat_do_execve(struct filename *filename,
  		.is_compat = true,
  		.ptr.compat = __envp,
  	};
@@ -30,10 +32,12 @@
 +#endif
  	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
  }
+ #endif
 --- a/fs/open.c
 +++ b/fs/open.c
+@@ -0,0 +0,0 @@ SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
 +#ifdef CONFIG_KSU
-+__attribute__((hot)) 
++__attribute__((hot))
 +extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
 +				int *mode, int *flags);
 +#endif
@@ -47,65 +51,50 @@
  }
 --- a/fs/stat.c
 +++ b/fs/stat.c
-@@ -353,6 +353,10 @@ SYSCALL_DEFINE2(newlstat, const char __user *, filename,
- 	return cp_new_stat(&stat, statbuf);
- }
- 
+@@ -0,0 +0,0 @@ SYSCALL_DEFINE2(newlstat, const char __user *, filename,
 +#ifdef CONFIG_KSU
-+__attribute__((hot)) 
++__attribute__((hot))
 +extern int ksu_handle_stat(int *dfd, const char __user **filename_user,
 +				int *flags);
 +#endif
 +
-
-#if !defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_SYS_NEWFSTATAT)
-SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
-		struct stat __user *, statbuf, int, flag)
-{
-	struct kstat stat;
-	int error;
-
+ #if !defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_SYS_NEWFSTATAT)
+ SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
+ 		struct stat __user *, statbuf, int, flag)
+ {
+ 	struct kstat stat;
+ 	int error;
 +#ifdef CONFIG_KSU
 +	ksu_handle_stat(&dfd, &filename, &flag);
 +#endif
  	error = vfs_fstatat(dfd, filename, &stat, flag);
  	if (error)
  		return error;
-@@ -504,6 +511,9 @@ 
-SYSCALL_DEFINE4(fstatat64, int, dfd, const char __user *, filename,
-		struct stat64 __user *, statbuf, int, flag)
-{
-	struct kstat stat;
-	int error;
- 
+@@ -0,0 +0,0 @@ SYSCALL_DEFINE4(fstatat64, int, dfd, const char __user *, filename,
+ 	struct kstat stat;
+ 	int error;
 +#ifdef CONFIG_KSU // 32-bit su
-+	ksu_handle_stat(&dfd, &filename, &flag); 
++	ksu_handle_stat(&dfd, &filename, &flag);
 +#endif
  	error = vfs_fstatat(dfd, filename, &stat, flag);
  	if (error)
  		return error;
 --- a/kernel/reboot.c
 +++ b/kernel/reboot.c
-@@ -277,6 +277,11 @@ 
-  *
-  * reboot doesn't sync: do that yourself before calling this.
-  */
-+
+@@ -0,0 +0,0 @@ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
 +#if defined(CONFIG_KSU) && !defined(CONFIG_KSU_KPROBES_KSUD)
 +extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
 +#endif
 +
-SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
-		void __user *, arg)
-{
-	struct pid_namespace *pid_ns = task_active_pid_ns(current);
-	char buffer[256];
-	int ret = 0;
- 
+ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
+ 		void __user *, arg)
+ {
+ 	struct pid_namespace *pid_ns = task_active_pid_ns(current);
+ 	char buffer[256];
+ 	int ret = 0;
 +#if defined(CONFIG_KSU) && !defined(CONFIG_KSU_KPROBES_KSUD)
 +	ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
 +#endif
  	/* We only trust the superuser with rebooting the system. */
  	if (!ns_capable(pid_ns->user_ns, CAP_SYS_BOOT))
  		return -EPERM;
- 		
