@@ -95,9 +95,6 @@ jobs:
               echo "Android (14043575, +pgo, +bolt, +lto, +mlgo, based on r536225) clang version 19.0.1 (https://android.googlesource.com/toolchain/llvm-project b3a530ec6537146650e42be89f1089e9a3588460), LLD 19.0.1"
               exit 0
           fi
-          export LD_PRELOAD="$(pwd)/libfakestat.so $(pwd)/libfaketimeMT.so"
-          export FAKESTAT="2025-09-12 04:57:41"
-          export FAKETIME="@2025-09-12 04:57:41"
           exec clang "$@"
           EOF
           chmod +x cc-wrapper
@@ -120,10 +117,16 @@ jobs:
           export CROSS_COMPILE_COMPAT=arm-none-eabi-
           export CLANG_TRIPLE=aarch64-none-linux-gnu-
           
-          # 禁用 Clang 23 的 uninitialized variable warning as error
-          export KCFLAGS="-Wno-error=default-const-init-var-unsafe -Wno-error=uninitialized"
+          # 禁用 Clang 23 的严格检查，将所有警告降级
+          export KCFLAGS="-Wno-error -Wno-default-const-init-var-unsafe -Wno-uninitialized"
+          export HOSTCFLAGS="-Wno-error"
+          export HOSTCXXFLAGS="-Wno-error"
 
           make -j$(nproc --all) O=out gki_defconfig
+          
+          # 修改生成的 Makefile 禁用 werror
+          scripts/config --file out/.config --disable CONFIG_WERROR 2>/dev/null || true
+          
           make -j$(nproc --all) O=out Image
 
       - name:  Package & Boot-Ready Check
