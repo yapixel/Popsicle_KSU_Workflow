@@ -81,47 +81,47 @@ jobs:
 
       - name:  Compile Kernel (Identity Spoofing)
         run: |
-          WORKDIR="$(pwd)"
-          CLANG_PATH="$WORKDIR/kernel_workspace/clang23/bin"
-          ARM64_TOOLCHAIN_PATH="$WORKDIR/kernel_workspace/toolchain-arm64/bin"
-          ARM32_TOOLCHAIN_PATH="$WORKDIR/kernel_workspace/toolchain-arm32/bin"
-          export PATH="$CLANG_PATH:$ARM64_TOOLCHAIN_PATH:$ARM32_TOOLCHAIN_PATH:$PATH"
+         WORKDIR="$(pwd)"
+         CLANG_PATH="$WORKDIR/kernel_workspace/clang23/bin"
+         ARM64_TOOLCHAIN_PATH="$WORKDIR/kernel_workspace/toolchain-arm64/bin"
+         ARM32_TOOLCHAIN_PATH="$WORKDIR/kernel_workspace/toolchain-arm32/bin"
+         export PATH="$CLANG_PATH:$ARM64_TOOLCHAIN_PATH:$ARM32_TOOLCHAIN_PATH:$PATH"
 
-          cd kernel_workspace/common
+         cd kernel_workspace/common
 
-          cat > cc-wrapper <<-EOF
-          #!/bin/bash
-          if [[ "\$*" == *"--version"* ]]; then
-              echo "Android (14043575, +pgo, +bolt, +lto, +mlgo, based on r536225) clang version 19.0.1 (https://android.googlesource.com/toolchain/llvm-project b3a530ec6537146650e42be89f1089e9a3588460), LLD 19.0.1"
-              exit 0
-          fi
-          export LD_PRELOAD="\$(pwd)/libfakestat.so \$(pwd)/libfaketimeMT.so"
-          export FAKESTAT="2025-09-12 04:57:41"
-          export FAKETIME="@2025-09-12 04:57:41"
-          exec clang "\$@"
-          EOF
-          chmod +x cc-wrapper
+         cat > cc-wrapper <<'EOF'
+         #!/bin/bash
+         if [[ "\$*" == *"--version"* ]]; then
+         echo "Android (14043575, +pgo, +bolt, +lto, +mlgo, based on r536225) clang version 19.0.1 (https://android.googlesource.com/toolchain/llvm-project b3a530ec6537146650e42be89f1089e9a3588460), LLD 19.0.1"
+         exit 0
+         fi
+         export LD_PRELOAD="\$(pwd)/libfakestat.so \$(pwd)/libfaketimeMT.so"
+         export FAKESTAT="2025-09-12 04:57:41"
+         export FAKETIME="@2025-09-12 04:57:41"
+         exec clang "\$@"
+         EOF
+         chmod +x cc-wrapper
 
-          export KBUILD_BUILD_USER="kleaf"
-          export KBUILD_BUILD_HOST="build-host"
-          export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
-          export ARCH=arm64
-          export LLVM=1
-          export LLVM_IAS=1
-          export CC="\$(pwd)/cc-wrapper"
-          export LD=ld.lld
-          export AR=llvm-ar
-          export NM=llvm-nm
-          export OBJCOPY=llvm-objcopy
-          export OBJDUMP=llvm-objdump
-          export READELF=llvm-readelf
-          export STRIP=llvm-strip
-          export CROSS_COMPILE=aarch64-none-linux-gnu-
-          export CROSS_COMPILE_COMPAT=arm-none-eabi-
-          export CLANG_TRIPLE=aarch64-none-linux-gnu-
+         export KBUILD_BUILD_USER="kleaf"
+         export KBUILD_BUILD_HOST="build-host"
+         export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
+         export ARCH=arm64
+         export LLVM=1
+         export LLVM_IAS=1
+         export CC="\$(pwd)/cc-wrapper"
+         export LD=ld.lld
+         export AR=llvm-ar
+         export NM=llvm-nm
+         export OBJCOPY=llvm-objcopy
+         export OBJDUMP=llvm-objdump
+         export READELF=llvm-readelf
+         export STRIP=llvm-strip
+         export CROSS_COMPILE=aarch64-none-linux-gnu-
+         export CROSS_COMPILE_COMPAT=arm-none-eabi-
+         export CLANG_TRIPLE=aarch64-none-linux-gnu-
 
-          make -j\$(nproc --all) O=out gki_defconfig
-          make -j\$(nproc --all) O=out Image
+         make -j\$(nproc --all) O=out gki_defconfig
+         make -j\$(nproc --all) O=out Image
 
       - name:  Package & Boot-Ready Check
         run: |
