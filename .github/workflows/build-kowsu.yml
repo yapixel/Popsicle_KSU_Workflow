@@ -29,7 +29,7 @@ jobs:
             binutils python-is-python3 libssl-dev libelf-dev libdw-dev \
             curl bison flex make git perl gcc bc zip unzip aria2
 
-     - name: Initialize Workspace & Toolchains
+      - name: Initialize Workspace & Toolchains
         run: |
           mkdir -p kernel_workspace && cd kernel_workspace
           
