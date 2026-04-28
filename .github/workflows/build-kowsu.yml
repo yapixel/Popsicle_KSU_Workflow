@@ -37,12 +37,15 @@ jobs:
           aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/android16-6.12-2025-06.tar.gz" -o common.tar.gz
           mkdir -p common
           tar -xzf common.tar.gz -C common 
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip -o clang.zip
-          unzip -q clang.zip -d clang19 && rm clang.zip
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip
-          unzip -q rust.zip -d rust && rm rust.zip
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip
-          unzip -q build-tools.zip && rm build-tools.zip
+          aria2c -s16 -x16 -k1M https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/Clang-23.0.0git-20260130.tar.gz -o clang23.tar.gz
+          mkdir -p clang23
+          tar -xzf clang23.tar.gz -C clang23
+          aria2c -s16 -x16 -k1M https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/arm-gnu-toolchain-15.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -o arm64-toolchain.tar.xz
+          mkdir -p toolchain-arm64
+          tar -xf arm64-toolchain.tar.xz -C toolchain-arm64 --strip-components=1
+          aria2c -s16 -x16 -k1M https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-eabi.tar.xz -o arm32-toolchain.tar.xz
+          mkdir -p toolchain-arm32
+          tar -xf arm32-toolchain.tar.xz -C toolchain-arm32 --strip-components=1
           sed -i 's/ -dirty//g' common/scripts/setlocalversion
 
       - name:  Setup KowSU
@@ -79,8 +82,10 @@ jobs:
       - name:  Compile Kernel (Identity Spoofing)
         run: |
           WORKDIR="$(pwd)"
-          REAL_CLANG="$WORKDIR/kernel_workspace/clang19/bin/clang"
-          export PATH="$WORKDIR/kernel_workspace/clang19/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
+          CLANG_PATH="$WORKDIR/kernel_workspace/clang23/bin"
+          ARM64_TOOLCHAIN_PATH="$WORKDIR/kernel_workspace/toolchain-arm64/bin"
+          ARM32_TOOLCHAIN_PATH="$WORKDIR/kernel_workspace/toolchain-arm32/bin"
+          export PATH="$CLANG_PATH:$ARM64_TOOLCHAIN_PATH:$ARM32_TOOLCHAIN_PATH:$PATH"
 
           cd kernel_workspace/common
 
@@ -93,7 +98,7 @@ jobs:
           export LD_PRELOAD="\$(pwd)/libfakestat.so \$(pwd)/libfaketimeMT.so"
           export FAKESTAT="2025-09-12 04:57:41"
           export FAKETIME="@2025-09-12 04:57:41"
-          exec "$REAL_CLANG" "\$@"
+          exec clang "\$@"
           EOF
           chmod +x cc-wrapper
 
@@ -103,29 +108,37 @@ jobs:
           export ARCH=arm64
           export LLVM=1
           export LLVM_IAS=1
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CC="$(pwd)/cc-wrapper"
+          export CC="\$(pwd)/cc-wrapper"
           export LD=ld.lld
+          export AR=llvm-ar
+          export NM=llvm-nm
+          export OBJCOPY=llvm-objcopy
+          export OBJDUMP=llvm-objdump
+          export READELF=llvm-readelf
+          export STRIP=llvm-strip
+          export CROSS_COMPILE=aarch64-none-linux-gnu-
+          export CROSS_COMPILE_COMPAT=arm-none-eabi-
+          export CLANG_TRIPLE=aarch64-none-linux-gnu-
 
-          make -j$(nproc --all) O=out gki_defconfig
-          make -j$(nproc --all) O=out Image
+          make -j\$(nproc --all) O=out gki_defconfig
+          make -j\$(nproc --all) O=out Image
 
       - name:  Package & Boot-Ready Check
         run: |
           cd kernel_workspace
           IMAGE="./common/out/arch/arm64/boot/Image"
-          [ -f "$IMAGE" ] || (echo " Image binary missing!" && exit 1)
+          [ -f "\$IMAGE" ] || (echo " Image binary missing!" && exit 1)
 
           git clone https://github.com/yapixel/AnyKernel3 --depth=1
-          cp "$IMAGE" ./AnyKernel3/ && cd AnyKernel3
+          cp "\$IMAGE" ./AnyKernel3/ && cd AnyKernel3
 
-          BUILD_DATE="$(date +'%y%m%d')"
-          ZIP_NAME="kowsu_popsicle_6.12.${{ inputs.sub_level }}-${BUILD_DATE}.zip"
-          zip -r9 "../$ZIP_NAME" *
-          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+          BUILD_DATE="\$(date +'%y%m%d')"
+          ZIP_NAME="kowsu_popsicle_6.12.\${{ inputs.sub_level }}-\${BUILD_DATE}.zip"
+          zip -r9 "../\$ZIP_NAME" *
+          echo "ZIP_NAME=\$ZIP_NAME" >> \$GITHUB_ENV
 
       - name:  Upload Build Artifact
         uses: actions/upload-artifact@v7.0.0
         with:
           name: kernel-kowsu
-          path: kernel_workspace/${{ env.ZIP_NAME }}
+          path: kernel_workspace/\${{ env.ZIP_NAME }}
