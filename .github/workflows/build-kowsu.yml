@@ -35,7 +35,11 @@ jobs:
           #aria2c -s16 -x16 -k1M https://github.com/cctv18/android_gki_kernel_common/archive/refs/heads/android16-6.12-2025-06.zip -o common.zip
           #unzip -q common.zip && mv "android_gki_kernel_common-android16-6.12-2025-06" common && rm common.zip
           aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/android16-6.12-2025-06.tar.gz" -o common.tar.gz
-          tar -xzf common.tar.gz -C common --strip-components=1 && rm common.tar.gz
+          aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/android16-6.12-2025-06.tar.gz" -o common.tar.gz
+          tar -xzf common.tar.gz
+          # 找到解压出的第一个目录并重命名为 common
+          mv $(tar -tf common.tar.gz | head -1 | cut -d/ -f1) common
+          rm common.tar.gz
           aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip -o clang.zip
           unzip -q clang.zip -d clang19 && rm clang.zip
           aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip
