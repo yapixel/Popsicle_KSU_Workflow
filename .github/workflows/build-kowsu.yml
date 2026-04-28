@@ -46,6 +46,8 @@ jobs:
           aria2c -s16 -x16 -k1M https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-eabi.tar.xz -o arm32-toolchain.tar.xz
           mkdir -p toolchain-arm32
           tar -xf arm32-toolchain.tar.xz -C toolchain-arm32 --strip-components=1
+          aria2c -s16 -x16 -k1M https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/build-tools.zip
+          unzip -q build-tools.zip && rm build-tools.zip
           sed -i 's/ -dirty//g' common/scripts/setlocalversion
 
       - name:  Setup KowSU
