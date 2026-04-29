@@ -124,8 +124,8 @@ jobs:
           export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/clang19/bin/clang"
           
           # 注入 BUILD_USER 和 BUILD_HOST
-          export KBUILD_BUILD_USER="KowSU"
-          export KBUILD_BUILD_HOST="KernelBuilder"
+          export KBUILD_BUILD_USER="kleaf"
+          export KBUILD_BUILD_HOST="build-host"
           
           #创建 CC (编译器) 包装器 - 使用绝对路径
           cat > cc-wrapper << EOF
@@ -212,8 +212,8 @@ jobs:
           export LD_PRELOAD="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
           
           # 重新确保 BUILD_USER 和 BUILD_HOST 不被覆盖
-          export KBUILD_BUILD_USER="KowSU"
-          export KBUILD_BUILD_HOST="KernelBuilder"
+          export KBUILD_BUILD_USER="kleaf"
+          export KBUILD_BUILD_HOST="build-host"
           
           #在构建内核的同时清除不必要的.NET, Android NDK, Haskell, CodeQL运行库，清理空间且不阻塞后续步骤运行
           sudo rm -rf /usr/share/dotnet &
@@ -221,7 +221,7 @@ jobs:
           sudo rm -rf /opt/ghc &
           sudo rm -rf /opt/hostedtoolcache/CodeQL &
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="clang" LD="ld.lld" OBJCOPY="llvm-objcopy" O=out gki_defconfig &&
-          scripts/config --file out/.config --disable CONFIG_WERROR 2>/dev/null || true &&
+          #scripts/config --file out/.config --disable CONFIG_WERROR 2>/dev/null || true &&
           export CC="$(pwd)/cc-wrapper" && export LD="$(pwd)/ld-wrapper" &&
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" OBJCOPY="llvm-objcopy" O=out Image
           
