@@ -78,10 +78,10 @@ jobs:
           cp -f KernelSU/kernel/include/*.h include/ 2>/dev/null || true
           cp -f KernelSU/kernel/uapi/*.h include/uapi/ 2>/dev/null || true
 
-      - name:  Apply KMI Bypass
-        run: |
-          cd kernel_workspace/common
-          sed -i '/bad_version:/,/^}/ s/return 0;/return 1;/' kernel/module/version.c
+     # - name:  Apply KMI Bypass
+     #   run: |
+     #     cd kernel_workspace/common
+     #     sed -i '/bad_version:/,/^}/ s/return 0;/return 1;/' kernel/module/version.c
 
       - name:  Inject Defconfig Flags
         uses: ./.github/actions/kernel-config
