@@ -91,8 +91,6 @@ jobs:
           variant: "kowsu"
           enable_susfs: "false"
 
-
-
       - name: Compile Kernel (Make)
         run: |
           WORKDIR="$(pwd)"
@@ -126,27 +124,33 @@ jobs:
           export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/clang19/bin/clang"
           
           #创建 CC (编译器) 包装器 - 不使用 ccache
-          echo '#!/bin/bash' > cc-wrapper
-          echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> cc-wrapper
-          echo 'export FAKESTAT="'$FAKESTAT'"' >> cc-wrapper
-          echo 'export FAKETIME="'$FAKETIME'"' >> cc-wrapper
-          echo '$REAL_CLANG_PATH "$@"' >> cc-wrapper
+          cat > cc-wrapper << 'EOF'
+          #!/bin/bash
+          export LD_PRELOAD="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
+          export FAKESTAT="$FAKESTAT"
+          export FAKETIME="$FAKETIME"
+          exec $REAL_CLANG_PATH "$@"
+          EOF
 
           #创建 LD (链接器) 包装器
-          echo '#!/bin/bash' > ld-wrapper
-          echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> ld-wrapper
-          echo 'export FAKESTAT="'$FAKESTAT'"' >> ld-wrapper
-          echo 'export FAKETIME="'$FAKETIME'"' >> ld-wrapper
-          echo 'ld.lld "$@"' >> ld-wrapper
+          cat > ld-wrapper << 'EOF'
+          #!/bin/bash
+          export LD_PRELOAD="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
+          export FAKESTAT="$FAKESTAT"
+          export FAKETIME="$FAKETIME"
+          exec ld.lld "$@"
+          EOF
           
           # 测试时间劫持测试是否正常工作
           echo "--- [Wrapper Test] 正在创建通用的时间劫持测试脚本 ---"
-          echo '#!/bin/bash' > test-wrapper.sh
-          echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> test-wrapper.sh
-          echo 'export FAKESTAT="'$FAKESTAT'"' >> test-wrapper.sh
-          echo 'export FAKETIME="'$FAKETIME'"' >> test-wrapper.sh
-          echo 'echo ">>> Wrapper 内部环境检查完毕."' >> test-wrapper.sh
-          echo 'exec "$@"' >> test-wrapper.sh # 执行所有传入的参数
+          cat > test-wrapper.sh << 'EOF'
+          #!/bin/bash
+          export LD_PRELOAD="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
+          export FAKESTAT="$FAKESTAT"
+          export FAKETIME="$FAKETIME"
+          echo ">>> Wrapper 内部环境检查完毕."
+          exec "$@"
+          EOF
           chmod +x test-wrapper.sh
           echo "--- [Wrapper Test] 正在测试 (date) 命令 ---"
           ./test-wrapper.sh date
@@ -175,6 +179,8 @@ jobs:
           KCFLAGS+=" -O2"
           KCFLAGS+=" -pipe"
           KCFLAGS+=" -Wno-error"
+          KCFLAGS+=" -Wno-default-const-init-var-unsafe"
+          KCFLAGS+=" -Wno-uninitialized"
           KCFLAGS+=" -fno-stack-protector"
           KCFLAGS+=" -D__ANDROID_COMMON_KERNEL__"
           export KCFLAGS
@@ -185,10 +191,21 @@ jobs:
           export LLVM=1 LLVM_IAS=1
           export ARCH=arm64 SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          export LD=ld.lld HOSTLD=ld.lld AR=llvm-ar NM=llvm-nm AS=clang READELF=llvm-readelf
-          export OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump OBJSIZE=llvm-size STRIP=llvm-strip
+          export AR=llvm-ar
+          export NM=llvm-nm
+          export AS=clang
+          export READELF=llvm-readelf
+          export OBJCOPY=llvm-objcopy
+          export OBJDUMP=llvm-objdump
+          export OBJSIZE=llvm-size
+          export STRIP=llvm-strip
           # 5. 编译前运行官方环境配置脚本
           source "./_setup_env.sh" 2>/dev/null || true
+          
+          # 重新确保时间变量不被覆盖
+          export FAKESTAT="2025-09-12 04:57:41"
+          export FAKETIME="@2025-09-12 04:57:41"
+          export LD_PRELOAD="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
           
           #在构建内核的同时清除不必要的.NET, Android NDK, Haskell, CodeQL运行库，清理空间且不阻塞后续步骤运行
           sudo rm -rf /usr/share/dotnet &
@@ -196,6 +213,7 @@ jobs:
           sudo rm -rf /opt/ghc &
           sudo rm -rf /opt/hostedtoolcache/CodeQL &
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="clang" LD="ld.lld" OBJCOPY="llvm-objcopy" O=out gki_defconfig &&
+          scripts/config --file out/.config --disable CONFIG_WERROR 2>/dev/null || true &&
           export CC="$(pwd)/cc-wrapper" && export LD="$(pwd)/ld-wrapper" &&
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" OBJCOPY="llvm-objcopy" O=out Image
           
