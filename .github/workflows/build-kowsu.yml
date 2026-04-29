@@ -54,7 +54,7 @@ jobs:
           mkdir -p clang19 && tar -xzf clang.tar.gz -C clang19 && rm clang.tar.gz
           aria2c -s16 -x16 -k1M https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/rust-1.82.0.tar.gz -o rust.tar.gz
           mkdir -p rust && tar -xzf rust.tar.gz -C rust && rm rust.tar.gz 
-          curl -L -o rust/bin/bindgen https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/bindgen
+          aria2c -s16 -x16 -k1M https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/bindgen -o rust/bin/bindgen && chmod +x rust/bin/bindgen
           aria2c -s16 -x16 -k1M https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/build-tools.tar.gz -o build-tools.tar.gz
           mkdir -p build-tools && tar -xzf build-tools.tar.gz --strip-components=1 -C build-tools/ linux-x86/ && rm build-tools.tar.gz
 
