@@ -183,8 +183,6 @@ jobs:
           KCFLAGS+=" -O2"
           KCFLAGS+=" -pipe"
           KCFLAGS+=" -Wno-error"
-          KCFLAGS+=" -Wno-default-const-init-var-unsafe"
-          KCFLAGS+=" -Wno-uninitialized"
           KCFLAGS+=" -fno-stack-protector"
           KCFLAGS+=" -D__ANDROID_COMMON_KERNEL__"
           export KCFLAGS
