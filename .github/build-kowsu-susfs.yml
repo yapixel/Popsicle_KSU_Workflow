@@ -1,0 +1,260 @@
+name: Module Build KowSU + SuSFS
+
+on:
+  workflow_call:
+    inputs:
+      sub_level:
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: KowSU + SuSFS 6.12.${{ inputs.sub_level }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      ANDROID_VERSION: 'android16'
+      KERNEL_VERSION: '6.12'
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          clean: false
+
+      - name: Free Disk Space & Install Dependencies
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune -af 2>/dev/null || true
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            binutils python-is-python3 libssl-dev libelf-dev libdw-dev \
+            curl bison flex make git perl gcc bc zip unzip aria2
+
+      - name: Initialize Workspace & Toolchains
+        run: |
+          mkdir -p kernel_workspace && cd kernel_workspace 
+          aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/android16-6.12-2025-06.tar.gz" -o common.tar.gz
+          mkdir -p common
+          tar -xzf common.tar.gz -C common 
+          aria2c -s16 -x16 -k1M https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/clang-r536225.tar.gz -o clang.tar.gz
+          mkdir -p clang19 && tar -xzf clang.tar.gz -C clang19 && rm clang.tar.gz
+          aria2c -s16 -x16 -k1M https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/rust-1.82.0.tar.gz -o rust.tar.gz
+          mkdir -p rust && tar -xzf rust.tar.gz -C rust && rm rust.tar.gz 
+          aria2c -s16 -x16 -k1M https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/bindgen -o rust/bin/bindgen && chmod +x rust/bin/bindgen
+          aria2c -s16 -x16 -k1M https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/build-tools.tar.gz -o build-tools.tar.gz
+          mkdir -p build-tools && tar -xzf build-tools.tar.gz --strip-components=1 -C build-tools/ linux-x86/ && rm build-tools.tar.gz
+          sed -i 's/ -dirty//g' common/scripts/setlocalversion
+
+      - name: Sync SuSFS Source
+        run: |
+          SUSFS_DIR="${{ github.workspace }}/susfs4ksu"
+          git clone --depth=1 --branch=gki-android16-6.12 https://gitlab.com/simonpunk/susfs4ksu "$SUSFS_DIR"
+          echo "SUSFS_DIR=$SUSFS_DIR" >> $GITHUB_ENV
+          SUSFS_VERSION=$(grep -m1 'define SUSFS_VERSION' "$SUSFS_DIR/kernel_patches/include/linux/susfs.h" | sed 's/.*"\(.*\)"/\1/')
+          echo "SUSFS_VERSION=${SUSFS_VERSION:-unknown}" >> $GITHUB_ENV
+
+      - name: Setup KowSU
+        run: |
+          cd kernel_workspace/common
+          rm -rf KernelSU drivers/kernelsu KernelSU-Next
+          git clone --depth=1 --branch=master https://github.com/KOWX712/KernelSU.git KernelSU
+
+          ln -sf ../KernelSU/kernel drivers/kernelsu
+          grep -q "kernelsu" drivers/Makefile || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+          grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+
+          # Standard header syncing for KowSU modular tree
+          cp -r KernelSU/uapi KernelSU/kernel/uapi 2>/dev/null || true
+          echo 'ccflags-y += -I$(srctree)/drivers/kernelsu' >> drivers/kernelsu/Makefile
+          mkdir -p include/uapi
+          cp -f KernelSU/kernel/policy/*.h include/uapi/ 2>/dev/null || true
+          cp -f KernelSU/kernel/policy/*.h include/ 2>/dev/null || true
+          cp -f KernelSU/kernel/include/*.h include/ 2>/dev/null || true
+          cp -f KernelSU/kernel/uapi/*.h include/uapi/ 2>/dev/null || true
+
+      - name: Apply Patches KowSU + SuSFS (10+50 Logic)
+        run: |
+          cd kernel_workspace/common
+
+          # 1. Kernel-side SuSFS
+          cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" fs/
+          cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs.h" include/linux/
+          cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" include/linux/
+          patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
+
+          # 2. KSU-side SuSFS
+          cd KernelSU
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/90_fix_susfs_symbols.patch"
+
+      - name: Inject Defconfig Flags
+        uses: ./.github/actions/kernel-config
+        with:
+          defconfig_path: "kernel_workspace/common/arch/arm64/configs/gki_defconfig"
+          build_config_path: "kernel_workspace/common/build.config.gki"
+          variant: "kowsu+susfs"
+          enable_susfs: "true"
+
+      - name: Compile Kernel (Identity Spoofing)
+        run: |
+          WORKDIR="$(pwd)"
+          export PATH="$WORKDIR/kernel_workspace/clang19/bin:$PATH"
+          export PATH="$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
+          export PATH="$WORKDIR/kernel_workspace/rust/bin:$PATH"
+          export CLANG_DIR="$WORKDIR/kernel_workspace/clang19/bin"
+          CLANG_VERSION="$($CLANG_DIR/clang --version | head -n 1)"
+          LLD_VERSION="$($CLANG_DIR/ld.lld --version | head -n 1)"
+          RUSTC_VERSION="$(rustc -V 2>/dev/null | head -n1)"
+          BINDGEN_VERSION="$(bindgen --version 2>/dev/null | head -n1)"
+          echo "编译器信息:"
+          echo "Clang版本: $CLANG_VERSION"
+          echo "LLD版本: $LLD_VERSION"
+          echo "Rustc版本: $RUSTC_VERSION"
+          echo "Bindgen版本: $BINDGEN_VERSION"
+          pahole_version=$(pahole --version 2>/dev/null | head -n1); [ -z "$pahole_version" ] && echo "pahole版本：未安装" || echo "pahole版本：$pahole_version"
+          
+          cd kernel_workspace/common
+          
+          # 从仓库复制 faketime 相关文件（仓库已 checkout）
+          cp ${{ github.workspace }}/_setup_env.sh ./ 2>/dev/null || true
+          cp ${{ github.workspace }}/lib/libfakestat.so ./ 2>/dev/null || true
+          cp ${{ github.workspace }}/lib/libfaketimeMT.so ./ 2>/dev/null || true
+          chmod 777 ./*.so ./*.sh 2>/dev/null || true
+          
+          export FAKESTAT="2025-09-12 04:57:41"
+          export FAKETIME="@2025-09-12 04:57:41"
+          echo "FAKESTAT=$FAKESTAT" >> $GITHUB_ENV
+          echo "FAKETIME=$FAKETIME" >> $GITHUB_ENV
+          SO_DIR=$(pwd)
+          export PRELOAD_LIBS="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
+          export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/clang19/bin/clang"
+          
+          # 注入 BUILD_USER 和 BUILD_HOST
+          export KBUILD_BUILD_USER="kleaf"
+          export KBUILD_BUILD_HOST="build-host"
+          
+          # 创建 CC (编译器) 包装器
+          cat > cc-wrapper << EOF
+          #!/bin/bash
+          export LD_PRELOAD="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
+          export FAKESTAT="$FAKESTAT"
+          export FAKETIME="$FAKETIME"
+          exec $REAL_CLANG_PATH "\$@"
+          EOF
+
+          # 创建 LD (链接器) 包装器
+          cat > ld-wrapper << EOF
+          #!/bin/bash
+          export LD_PRELOAD="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
+          export FAKESTAT="$FAKESTAT"
+          export FAKETIME="$FAKETIME"
+          exec ld.lld "\$@"
+          EOF
+          
+          # 测试时间劫持测试是否正常工作
+          echo "--- [Wrapper Test] 正在创建通用的时间劫持测试脚本 ---"
+          cat > test-wrapper.sh << EOF
+          #!/bin/bash
+          export LD_PRELOAD="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
+          export FAKESTAT="$FAKESTAT"
+          export FAKETIME="$FAKETIME"
+          echo ">>> Wrapper 内部环境检查完毕."
+          exec "\$@"
+          EOF
+          chmod +x test-wrapper.sh
+          echo "--- [Wrapper Test] 正在测试 (date) 命令 ---"
+          ./test-wrapper.sh date
+          echo "--- [Wrapper Test] 正在测试 (stat) 命令 ---"
+          ./test-wrapper.sh stat ./Makefile
+          echo "--- [Wrapper Test] 测试完毕 ---"
+          chmod +x cc-wrapper ld-wrapper
+          echo "--- 编译前环境时间: \$(LD_PRELOAD="\$PRELOAD_LIBS" date) ---"
+          echo "--- 编译前环境文件时间戳: ---"
+          LD_PRELOAD="$PRELOAD_LIBS" stat ./Makefile
+          
+          # 6.12内核make编译核心配置：
+          # 1. 重映射物理路径 (由于6.12内核引入了Rust代码，计算内核符号版本的工具变成了gendwarfksyms，而gendwarfksyms无法正确预处理绝对路径，故我们需要手动把绝对路径重映射为相对路径，否则内核符号校验值会大面积出错)
+          COMMON_REAL_PATH=$(pwd -P)
+          ROOT_REAL_PATH=$(dirname "$COMMON_REAL_PATH")
+          KCFLAGS+=" -fdebug-prefix-map=$ROOT_REAL_PATH=."
+          KCFLAGS+=" -fmacro-prefix-map=$ROOT_REAL_PATH=."
+          KCFLAGS+=" -ffile-prefix-map=$ROOT_REAL_PATH=."
+          # 2. 声明Rust等工具（此处若不进行声明，内核编译前的Rust环境预检测脚本scripts/rust_is_available.sh会检测失败，导致内核无法正常开启Rust代码编译）
+          export RUSTC="rustc"
+          export BINDGEN="bindgen"
+          export CC="clang"
+          export LIBCLANG_PATH="$WORKDIR/kernel_workspace/clang19/lib"
+          # 3. 配置KCFLAGS
+          KCFLAGS+=" -no-canonical-prefixes"
+          KCFLAGS+=" -O2"
+          KCFLAGS+=" -pipe"
+          KCFLAGS+=" -Wno-error"
+          KCFLAGS+=" -fno-stack-protector"
+          KCFLAGS+=" -D__ANDROID_COMMON_KERNEL__"
+          export KCFLAGS
+          # 4. 配置其他工具及选项（非必须，防错冗余）
+          export HOSTCC=clang
+          export LD="ld.lld"
+          export HOSTLD=ld.lld
+          export LLVM=1 LLVM_IAS=1
+          export ARCH=arm64 SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export AR=llvm-ar
+          export NM=llvm-nm
+          export AS=clang
+          export READELF=llvm-readelf
+          export OBJCOPY=llvm-objcopy
+          export OBJDUMP=llvm-objdump
+          export OBJSIZE=llvm-size
+          export STRIP=llvm-strip
+          # 5. 编译前运行官方环境配置脚本
+          source "./_setup_env.sh" 2>/dev/null || true
+          
+          # 重新确保时间变量不被覆盖
+          export FAKESTAT="2025-09-12 04:57:41"
+          export FAKETIME="@2025-09-12 04:57:41"
+          export LD_PRELOAD="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
+          
+          # 重新确保 BUILD_USER 和 BUILD_HOST 不被覆盖
+          export KBUILD_BUILD_USER="kleaf"
+          export KBUILD_BUILD_HOST="build-host"
+          
+          # 在构建内核的同时清除不必要的.NET, Android NDK, Haskell, CodeQL运行库，清理空间且不阻塞后续步骤运行
+          sudo rm -rf /usr/share/dotnet &
+          sudo rm -rf /usr/local/lib/android &
+          sudo rm -rf /opt/ghc &
+          sudo rm -rf /opt/hostedtoolcache/CodeQL &
+          
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="clang" LD="ld.lld" OBJCOPY="llvm-objcopy" O=out gki_defconfig &&
+          export CC="$(pwd)/cc-wrapper" && export LD="$(pwd)/ld-wrapper" &&
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" OBJCOPY="llvm-objcopy" O=out Image
+          
+          # 编译后时间劫持二次校验
+          echo "--- 编译后环境时间: \$(LD_PRELOAD="\$PRELOAD_LIBS" date) ---"
+          echo "--- 编译后环境文件时间戳: ---"
+          LD_PRELOAD="$PRELOAD_LIBS" stat ./Makefile
+          
+          echo "内核编译完成！"
+          echo "编译后空间:"
+          df -h
+
+      - name: Package & Boot-Ready Check
+        run: |
+          cd kernel_workspace
+          IMAGE="./common/out/arch/arm64/boot/Image"
+          [ -f "$IMAGE" ] || (echo " Image binary missing!" && exit 1)
+
+          git clone https://github.com/yapixel/AnyKernel3 --depth=1
+          cp "$IMAGE" ./AnyKernel3/ && cd AnyKernel3
+
+          BUILD_DATE="$(date +'%y%m%d')"
+          ZIP_NAME="kowsu+susfs_popsicle_6.12.${{ inputs.sub_level }}-${BUILD_DATE}-susfs-${{ env.SUSFS_VERSION }}.zip"
+          zip -r9 "../$ZIP_NAME" *
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: kernel-kowsu-susfs
+          path: kernel_workspace/${{ env.ZIP_NAME }}
