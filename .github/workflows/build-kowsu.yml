@@ -45,20 +45,16 @@ jobs:
           aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/build-tools.zip" -o build-tools.zip
           unzip -q build-tools.zip && rm build-tools.zip
           
-          # 4. 下载 Rust 环境
-          aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/rust.zip" -o rust.zip
-          unzip -q rust.zip -d rust && rm rust.zip
-
-          # 5. 下载 ARM GNU Toolchain 15.2 (64位)
+          # 4. 下载 ARM GNU Toolchain 15.2 (64位)
           aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/arm-gnu-toolchain-15.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz" -o gcc64.tar.xz
           mkdir -p gcc64 && tar -xJf gcc64.tar.xz --strip-components=1 -C gcc64 && rm gcc64.tar.xz
 
-          # 6. 下载 ARM GNU Toolchain 15.2 (32位/Bare Metal)
+          # 5. 下载 ARM GNU Toolchain 15.2 (32位/Bare Metal)
           aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-eabi.tar.xz" -o gcc32.tar.xz
           mkdir -p gcc32 && tar -xJf gcc32.tar.xz --strip-components=1 -C gcc32 && rm gcc32.tar.xz
           
-          # 权限补全
-          chmod -R +x clang23/bin/ build-tools/bin/ rust/bin/ gcc64/bin/ gcc32/bin/
+          # 权限补全 (已移除 rust)
+          chmod -R +x clang23/bin/ build-tools/bin/ gcc64/bin/ gcc32/bin/
           sed -i 's/ -dirty//g' common/scripts/setlocalversion
 
       - name: Setup KowSU (Standard Sync)
@@ -89,15 +85,15 @@ jobs:
           variant: "kowsu"
           enable_susfs: "false"
 
-      - name: Compile Kernel (High-Level Hybrid Sourcing)
+      - name: Compile Kernel (Pure C/C++ Hybrid Mode)
         run: |
           WORKDIR="$(pwd)"
           cd kernel_workspace/common
           
-          # 核心路径优先级设置
-          export PATH="$WORKDIR/kernel_workspace/clang23/bin:$WORKDIR/kernel_workspace/gcc64/bin:$WORKDIR/kernel_workspace/gcc32/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
+          # 核心路径优先级设置 (已彻底移除 rust 路径)
+          export PATH="$WORKDIR/kernel_workspace/clang23/bin:$WORKDIR/kernel_workspace/gcc64/bin:$WORKDIR/kernel_workspace/gcc32/bin:$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
 
-          # 身份欺骗包装器 (Spoofing Clang 19)
+          # 身份欺骗包装器
           cat > cc-wrapper <<-EOF
           #!/bin/bash
           if [[ "\$*" == *"--version"* ]]; then
@@ -125,10 +121,6 @@ jobs:
           export HOSTLD=ld.lld
           export HOSTAR=llvm-ar
           
-          # Rust 变量对齐
-          export RUSTC="rustc"
-          export BINDGEN="bindgen"
-          
           # 定制 GNU 15.2 工具链前缀
           export CROSS_COMPILE=aarch64-none-linux-gnu-
           export CROSS_COMPILE_COMPAT=arm-none-eabi-
@@ -139,11 +131,18 @@ jobs:
           export KBUILD_BUILD_HOST="build-host"
           export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
 
-          # 1. 生成配置 (同步变量)
+          # 1. 生成基础配置
           make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
             CC="$CC" HOSTCC="$HOSTCC" CROSS_COMPILE="$CROSS_COMPILE" gki_defconfig
 
-          # 2. 暴力覆写编译 (参考你的 Mkae 命令)
+          # =========================================================
+          # 🔪 拔掉 Rust：强制禁用配置，解决高版本 Clang 的 bindgen 崩溃
+          # =========================================================
+          scripts/config --file out/.config -d CONFIG_RUST
+          scripts/config --file out/.config -d CONFIG_RUST_BLK
+          make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+
+          # 2. 暴力覆写编译 (纯 C/C++)
           make -j$(nproc --all) O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
             CC="$CC" LD="$LD" AR="$AR" NM="$NM" OBJCOPY="$OBJCOPY" OBJDUMP="$OBJDUMP" \
             READELF="$READELF" STRIP="$STRIP" HOSTCC="$HOSTCC" HOSTCXX="$HOSTCXX" \
@@ -160,12 +159,12 @@ jobs:
           git clone https://github.com/yapixel/AnyKernel3 --depth=1
           cp "$IMAGE" ./AnyKernel3/
           cd AnyKernel3
-          ZIP_NAME="kowsu_popsicle_6.12_mixed_15.2-$(date +'%y%m%d').zip"
+          ZIP_NAME="kowsu_popsicle_6.12_norust_15.2-$(date +'%y%m%d').zip"
           zip -r9 "../$ZIP_NAME" *
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-kowsu-mixed-15.2
+          name: kernel-kowsu-norust
           path: kernel_workspace/${{ env.ZIP_NAME }}
