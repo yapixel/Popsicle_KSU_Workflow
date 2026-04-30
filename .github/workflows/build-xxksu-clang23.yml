@@ -1,4 +1,4 @@
-name: Module Build xxKSU (Clang 23 Test)
+name: Module Build xxKSU (Clang r584948 Test)
 
 on:
   workflow_call:
@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: xxKSU 6.12.${{ inputs.sub_level }} (Clang 23)
+    name: xxKSU 6.12.${{ inputs.sub_level }} (Clang r584948)
     runs-on: ubuntu-latest
     timeout-minutes: 300
     env:
@@ -32,7 +32,7 @@ jobs:
             binutils python-is-python3 libssl-dev libelf-dev libdw-dev \
             curl bison flex make git perl gcc bc zip unzip aria2
 
-      - name: Initialize Workspace & Toolchains (Clang 23 + ARM + Android Rust)
+      - name: Initialize Workspace & Toolchains (Clang r584948 + ARM + Android Rust)
         run: |
           mkdir -p kernel_workspace && cd kernel_workspace 
           
@@ -41,10 +41,10 @@ jobs:
           mkdir -p common
           tar -xzf common.tar.gz -C common 
           
-          # Clang 23
-          aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/Clang-23.0.0git-20260130.tar.gz" -o clang23.tar.gz
-          mkdir -p clang23
-          tar -xzf clang23.tar.gz -C clang23
+          # Clang r584948 (Android 官方主线版)
+          aria2c -s16 -x16 -k1M "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/mirror-goog-main-llvm-toolchain-source/clang-r584948.tar.gz" -o clang.tar.gz
+          mkdir -p clang
+          tar -xzf clang.tar.gz -C clang
           
           # ARM64 工具链
           aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/arm-gnu-toolchain-15.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz" -o arm64-toolchain.tar.xz
@@ -67,13 +67,13 @@ jobs:
           tar -xzf clang_tools_bin.tar.gz -C build-tools/bin/ bindgen
           chmod +x build-tools/bin/bindgen
           
-          # build-tools (其他工具，如 lz4, cpio, etc.)
+          # build-tools (其他工具)
           aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/build-tools.tar.gz" -o build-tools-full.tar.gz
           mkdir -p build-tools-full
           tar -xzf build-tools-full.tar.gz --strip-components=1 -C build-tools-full/ linux-x86/
           
           # 设置 PATH
-          export PATH="$PWD/clang23/bin:$PWD/toolchain-arm64/bin:$PWD/toolchain-arm32/bin:$PWD/rust/bin:$PWD/build-tools/bin:$PWD/build-tools-full/bin:$PATH"
+          export PATH="$PWD/clang/bin:$PWD/toolchain-arm64/bin:$PWD/toolchain-arm32/bin:$PWD/rust/bin:$PWD/build-tools/bin:$PWD/build-tools-full/bin:$PATH"
           
           # 验证版本
           echo "=== Toolchain Versions ==="
@@ -83,7 +83,7 @@ jobs:
           aarch64-none-linux-gnu-gcc --version | head -1
           
           sed -i 's/ -dirty//g' common/scripts/setlocalversion
-          
+
       - name: Setup xxKSU
         run: |
           cd kernel_workspace/common
@@ -111,16 +111,17 @@ jobs:
         with:
           workdir: kernel_workspace/common
 
-      - name: Compile Kernel with Clang 23
+      - name: Compile Kernel with Clang r584948
         run: |
           WORKDIR="$(pwd)"
-          export PATH="$WORKDIR/kernel_workspace/clang23/bin:$PATH"
+          export PATH="$WORKDIR/kernel_workspace/clang/bin:$PATH"
           export PATH="$WORKDIR/kernel_workspace/toolchain-arm64/bin:$PATH"
           export PATH="$WORKDIR/kernel_workspace/toolchain-arm32/bin:$PATH"
           export PATH="$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
+          export PATH="$WORKDIR/kernel_workspace/build-tools-full/bin:$PATH"
           export PATH="$WORKDIR/kernel_workspace/rust/bin:$PATH"
           
-          export CLANG_DIR="$WORKDIR/kernel_workspace/clang23/bin"
+          export CLANG_DIR="$WORKDIR/kernel_workspace/clang/bin"
           CLANG_VERSION="$($CLANG_DIR/clang --version | head -n 1)"
           LLD_VERSION="$($CLANG_DIR/ld.lld --version | head -n 1)"
           RUSTC_VERSION="$(rustc -V 2>/dev/null | head -n1)"
@@ -148,7 +149,7 @@ jobs:
           export RUSTC="rustc"
           export BINDGEN="bindgen"
           export CC="clang"
-          export LIBCLANG_PATH="$WORKDIR/kernel_workspace/clang23/lib"
+          export LIBCLANG_PATH="$WORKDIR/kernel_workspace/clang/lib"
           
           # KCFLAGS
           KCFLAGS+=" -no-canonical-prefixes"
@@ -208,12 +209,12 @@ jobs:
           cp "$IMAGE" ./AnyKernel3/ && cd AnyKernel3
 
           BUILD_DATE="$(date +'%y%m%d')"
-          ZIP_NAME="xxksu_clang23_6.12.${{ inputs.sub_level }}-${BUILD_DATE}.zip"
+          ZIP_NAME="xxksu_clang_r584948_6.12.${{ inputs.sub_level }}-${BUILD_DATE}.zip"
           zip -r9 "../$ZIP_NAME" *
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v7.0.0
         with:
-          name: kernel-xxksu-clang23
+          name: kernel-xxksu-clang-r584948
           path: kernel_workspace/${{ env.ZIP_NAME }}
