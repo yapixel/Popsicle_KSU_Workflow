@@ -1,0 +1,25 @@
+name: Setup cc-wrapper for Clang version spoofing
+description: Creates a wrapper script that fakes clang --version output
+
+inputs:
+  workdir:
+    description: Path to kernel/common directory
+    required: true
+    default: kernel_workspace/common
+
+runs:
+  using: composite
+  steps:
+    - name: Create cc-wrapper script
+      shell: bash
+      run: |
+        cd "${{ inputs.workdir }}"
+        cat > cc-wrapper << 'EOF'
+        #!/bin/bash
+        if [[ "$*" == *"--version"* ]]; then
+            echo "Android (14043575, +pgo, +bolt, +lto, +mlgo, based on r536225) clang version 19.0.1 (https://android.googlesource.com/toolchain/llvm-project b3a530ec6537146650e42be89f1089e9a3588460), LLD 19.0.1"
+            exit 0
+        fi
+        exec clang "$@"
+        EOF
+        chmod +x cc-wrapper
