@@ -57,7 +57,8 @@ jobs:
           tar -xf arm32-toolchain.tar.xz -C toolchain-arm32 --strip-components=1
           
           # Rust & build-tools
-          aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/rust-1.82.0.tar.gz" -o rust.tar.gz
+          #aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/rust-1.82.0.tar.gz" -o rust.tar.gz
+          aria2c -s16 -x16 -k1M "https://android.googlesource.com/platform/prebuilts/rust/+archive/refs/heads/android16-release/linux-x86/1.83.0.tar.gz" -o rust.tar.gz
           mkdir -p rust && tar -xzf rust.tar.gz -C rust && rm rust.tar.gz 
           aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/bindgen" -o rust/bin/bindgen && chmod +x rust/bin/bindgen
           aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/build-tools.tar.gz" -o build-tools.tar.gz
