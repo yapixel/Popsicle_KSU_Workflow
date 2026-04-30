@@ -1,0 +1,204 @@
+name: Module Build xxKSU (Clang 22 Pure - No ARM Toolchain)
+
+on:
+  workflow_call:
+    inputs:
+      sub_level:
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: xxKSU 6.12.${{ inputs.sub_level }} (Clang 22 Pure)
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      ANDROID_VERSION: 'android16'
+      KERNEL_VERSION: '6.12'
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          clean: false
+          submodules: true
+
+      - name: Free Disk Space & Install Dependencies
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune -af 2>/dev/null || true
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            binutils python-is-python3 libssl-dev libelf-dev libdw-dev \
+            curl bison flex make git perl gcc bc zip unzip aria2
+
+      - name: Initialize Workspace (Clang 22 Pure)
+        run: |
+          mkdir -p kernel_workspace && cd kernel_workspace 
+          
+          # 内核源码
+          aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/android16-6.12-2025-06.tar.gz" -o common.tar.gz
+          mkdir -p common
+          tar -xzf common.tar.gz -C common 
+          
+          # Clang r584948 (Android 官方主线版)
+          aria2c -s16 -x16 -k1M "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/mirror-goog-main-llvm-toolchain-source/clang-r584948.tar.gz" -o clang.tar.gz
+          mkdir -p clang
+          tar -xzf clang.tar.gz -C clang
+          
+          # Rust 1.83.0 (Android 官方预编译版)
+          aria2c -s16 -x16 -k1M "https://android.googlesource.com/platform/prebuilts/rust/+archive/refs/heads/android16-release/linux-x86/1.83.0.tar.gz" -o rust.tar.gz
+          mkdir -p rust
+          tar -xzf rust.tar.gz -C rust
+          
+          # bindgen (从 Android 官方 clang-tools 提取)
+          mkdir -p build-tools/bin
+          aria2c -s16 -x16 -k1M "https://android.googlesource.com/platform/prebuilts/clang-tools/+archive/refs/heads/android16-release/linux-x86/bin.tar.gz" -o clang_tools_bin.tar.gz
+          tar -xzf clang_tools_bin.tar.gz -C build-tools/bin/ bindgen
+          chmod +x build-tools/bin/bindgen
+          
+          # build-tools (其他工具)
+          aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/build-tools.tar.gz" -o build-tools-full.tar.gz
+          mkdir -p build-tools-full
+          tar -xzf build-tools-full.tar.gz --strip-components=1 -C build-tools-full/ linux-x86/
+          
+          # 设置 PATH (无 ARM 工具链)
+          export PATH="$PWD/clang/bin:$PWD/rust/bin:$PWD/build-tools/bin:$PWD/build-tools-full/bin:$PATH"
+          
+          # 验证版本
+          echo "=== Toolchain Versions ==="
+          clang --version | head -1
+          rustc --version
+          bindgen --version
+          
+          sed -i 's/ -dirty//g' common/scripts/setlocalversion
+
+      - name: Setup xxKSU
+        run: |
+          cd kernel_workspace/common
+          git clone --depth=1 --branch=master https://github.com/backslashxx/KernelSU.git KernelSU
+          ln -sf ../KernelSU/kernel drivers/kernelsu
+          grep -q "kernelsu" drivers/Makefile || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+          grep -q "kernelsu" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+
+      - name: Apply Patches xxKSU
+        run: |
+          cd kernel_workspace/common
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/manual-security-hooks-v1.9.patch"
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-manual-hooks-v2.0.patch"
+
+      - name: Inject Defconfig Flags
+        uses: ./.github/actions/kernel-config
+        with:
+          defconfig_path: "kernel_workspace/common/arch/arm64/configs/gki_defconfig"
+          build_config_path: "kernel_workspace/common/build.config.gki"
+          variant: "xxksu"
+          enable_susfs: "false"
+
+      - name: Setup cc-wrapper for Clang version spoofing
+        uses: ./.github/actions/setup-cc-wrapper
+        with:
+          workdir: kernel_workspace/common
+
+      - name: Compile Kernel (Clang 22 Pure)
+        run: |
+          WORKDIR="$(pwd)"
+          export PATH="$WORKDIR/kernel_workspace/clang/bin:$PATH"
+          export PATH="$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
+          export PATH="$WORKDIR/kernel_workspace/build-tools-full/bin:$PATH"
+          export PATH="$WORKDIR/kernel_workspace/rust/bin:$PATH"
+          
+          export CLANG_DIR="$WORKDIR/kernel_workspace/clang/bin"
+          CLANG_VERSION="$($CLANG_DIR/clang --version | head -n 1)"
+          LLD_VERSION="$($CLANG_DIR/ld.lld --version | head -n 1)"
+          RUSTC_VERSION="$(rustc -V 2>/dev/null | head -n1)"
+          BINDGEN_VERSION="$(bindgen --version 2>/dev/null | head -n1)"
+          echo "编译器信息:"
+          echo "Clang版本: $CLANG_VERSION"
+          echo "LLD版本: $LLD_VERSION"
+          echo "Rustc版本: $RUSTC_VERSION"
+          echo "Bindgen版本: $BINDGEN_VERSION"
+          
+          cd kernel_workspace/common
+          
+          cp ${{ github.workspace }}/_setup_env.sh ./ 2>/dev/null || true
+          chmod 777 ./*.sh 2>/dev/null || true
+          
+          # 路径重映射
+          COMMON_REAL_PATH=$(pwd -P)
+          ROOT_REAL_PATH=$(dirname "$COMMON_REAL_PATH")
+          KCFLAGS+=" -fdebug-prefix-map=$ROOT_REAL_PATH=."
+          KCFLAGS+=" -fmacro-prefix-map=$ROOT_REAL_PATH=."
+          KCFLAGS+=" -ffile-prefix-map=$ROOT_REAL_PATH=."
+          
+          # Rust 工具
+          export RUSTC="rustc"
+          export BINDGEN="bindgen"
+          export CC="clang"
+          export LIBCLANG_PATH="$WORKDIR/kernel_workspace/clang/lib"
+          
+          # KCFLAGS
+          KCFLAGS+=" -no-canonical-prefixes"
+          KCFLAGS+=" -O2"
+          KCFLAGS+=" -pipe"
+          KCFLAGS+=" -Wno-error"
+          KCFLAGS+=" -fno-stack-protector"
+          KCFLAGS+=" -D__ANDROID_COMMON_KERNEL__"
+          export KCFLAGS
+          
+          # 工具链配置 (LLVM 完整接管，无 GNU 工具链)
+          export HOSTCC=clang
+          export HOSTLD=ld.lld
+          export LLVM=1
+          export LLVM_IAS=1
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CC=clang
+          export LD=ld.lld
+          export AR=llvm-ar
+          export NM=llvm-nm
+          export AS=clang
+          export READELF=llvm-readelf
+          export OBJCOPY=llvm-objcopy
+          export OBJDUMP=llvm-objdump
+          export OBJSIZE=llvm-size
+          export STRIP=llvm-strip
+          
+          source "./_setup_env.sh" 2>/dev/null || true
+          
+          # 固定时间戳
+          export SOURCE_DATE_EPOCH=1757653061
+          export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
+          export KBUILD_BUILD_HOST="build-host"
+          export KBUILD_BUILD_USER="kleaf"
+          
+          sudo rm -rf /usr/share/dotnet &
+          sudo rm -rf /usr/local/lib/android &
+          sudo rm -rf /opt/ghc &
+          sudo rm -rf /opt/hostedtoolcache/CodeQL &
+          
+          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 O=out gki_defconfig
+          make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CC="$(pwd)/cc-wrapper" O=out Image
+          
+          echo "内核编译完成！"
+          df -h
+
+      - name: Package & Boot-Ready Check
+        run: |
+          cd kernel_workspace
+          IMAGE="./common/out/arch/arm64/boot/Image"
+          [ -f "$IMAGE" ] || (echo " Image binary missing!" && exit 1)
+
+          git clone https://github.com/yapixel/AnyKernel3 --depth=1
+          cp "$IMAGE" ./AnyKernel3/ && cd AnyKernel3
+
+          BUILD_DATE="$(date +'%y%m%d')"
+          ZIP_NAME="xxksu_clang22_pure_6.12.${{ inputs.sub_level }}-${BUILD_DATE}.zip"
+          zip -r9 "../$ZIP_NAME" *
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: kernel-xxksu-clang22-pure
+          path: kernel_workspace/${{ env.ZIP_NAME }}
