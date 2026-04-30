@@ -1,4 +1,5 @@
-name:  Build GKI  Popsicle (SM8850)
+name: Build GKI Popsicle (SM8850)
+
 on:
   workflow_dispatch:
     inputs:
@@ -28,11 +29,8 @@ permissions:
   packages: write
 
 jobs:
-  # 
-  # 1  SETUP
-  # 
   setup:
-    name:  Setup  Resolve Build Config
+    name: Setup Resolve Build Config
     runs-on: ubuntu-latest
     outputs:
       release_tag:       ${{ steps.config.outputs.release_tag }}
@@ -40,12 +38,13 @@ jobs:
       build_kowsu_susfs: ${{ steps.config.outputs.build_kowsu_susfs }}
       build_kowsu:       ${{ steps.config.outputs.build_kowsu }}
       build_xxksu:       ${{ steps.config.outputs.build_xxksu }}
+      build_xxksu_clang23: ${{ steps.config.outputs.build_xxksu_clang23 }}
     steps:
       - id: config
         name: Resolve variant flags & release tag
         run: |
-          TAG=$(date +'%y%m%d')
-          echo "release_tag=${TAG}"                       >> $GITHUB_OUTPUT
+          DATE_TAG=$(date +'%Y%m%d')
+          echo "release_tag=${DATE_TAG}"                       >> $GITHUB_OUTPUT
           echo "kernel_ver=6.12.${{ inputs.sub_level }}" >> $GITHUB_OUTPUT
 
           VARIANT="${{ inputs.ksu_variant }}"
@@ -64,49 +63,48 @@ jobs:
 
           if [[ "$VARIANT" == "all" || "$VARIANT" == "xxksu" ]]; then
             echo "build_xxksu=true"        >> $GITHUB_OUTPUT
+            # 同时构建 Clang 23 测试版
+            echo "build_xxksu_clang23=true" >> $GITHUB_OUTPUT
           else
             echo "build_xxksu=false"       >> $GITHUB_OUTPUT
+            echo "build_xxksu_clang23=false" >> $GITHUB_OUTPUT
           fi
 
-  # 
-  # 2  BUILD  KowSU + SuSFS
-  # 
   build_kowsu_susfs:
-    name:  Build  KowSU + SuSFS
+    name: Build KowSU + SuSFS
     needs: setup
     if: needs.setup.outputs.build_kowsu_susfs == 'true'
     uses: ./.github/workflows/build-kowsu-susfs.yml
     with:
       sub_level: ${{ inputs.sub_level }}
 
-  # 
-  # 3  BUILD  KowSU (vanilla)
-  # 
   build_kowsu:
-    name:  Build  KowSU
+    name: Build KowSU
     needs: setup
     if: needs.setup.outputs.build_kowsu == 'true'
     uses: ./.github/workflows/build-kowsu.yml
     with:
       sub_level: ${{ inputs.sub_level }}
 
-  # 
-  # 4  BUILD  xxKSU
-  # 
   build_xxksu:
-    name:  Build  xxKSU
+    name: Build xxKSU (Clang 19)
     needs: setup
     if: needs.setup.outputs.build_xxksu == 'true'
     uses: ./.github/workflows/build-xxksu.yml
     with:
       sub_level: ${{ inputs.sub_level }}
 
-  # 
-  # 5  RELEASE
-  # 
+  build_xxksu_clang23:
+    name: Build xxKSU (Clang 23 Test)
+    needs: setup
+    if: needs.setup.outputs.build_xxksu_clang23 == 'true'
+    uses: ./.github/workflows/build-xxksu-clang23.yml
+    with:
+      sub_level: ${{ inputs.sub_level }}
+
   release:
-    name:  Release  Publish Artifacts
-    needs: [setup, build_kowsu_susfs, build_kowsu, build_xxksu]
+    name: Release Publish Artifacts
+    needs: [setup, build_kowsu_susfs, build_kowsu, build_xxksu, build_xxksu_clang23]
     if: |
       always() &&
       inputs.create_release == true &&
