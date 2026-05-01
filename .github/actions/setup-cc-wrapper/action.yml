@@ -1,5 +1,5 @@
 name: Setup cc-wrapper for Clang version spoofing
-description: Creates a wrapper script that fakes clang --version output
+description: Creates a wrapper script that fakes clang --version output (only if needed)
 
 inputs:
   workdir:
@@ -10,16 +10,32 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Create cc-wrapper script
+    - name: Check clang version and create wrapper if needed
       shell: bash
       run: |
         cd "${{ inputs.workdir }}"
-        cat > cc-wrapper << 'EOF'
-        #!/bin/bash
-        if [[ "$*" == *"--version"* ]]; then
-            echo "Android (14043575, +pgo, +bolt, +lto, +mlgo, based on r536225) clang version 19.0.1 (https://android.googlesource.com/toolchain/llvm-project b3a530ec6537146650e42be89f1089e9a3588460)"
-            exit 0
+        
+        # 获取实际 clang 版本
+        REAL_VERSION=$(clang --version | head -1 | grep -oP 'clang version \K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        TARGET_VERSION="19.0.1"
+        
+        if [ "$REAL_VERSION" = "$TARGET_VERSION" ]; then
+          echo "Clang version is already $TARGET_VERSION, no wrapper needed"
+          # 创建一个空的 cc-wrapper 直接调用 clang
+          cat > cc-wrapper << 'EOF'
+          #!/bin/bash
+          exec clang "$@"
+          EOF
+        else
+          echo "Clang version is $REAL_VERSION, creating wrapper to spoof as $TARGET_VERSION"
+          cat > cc-wrapper << 'EOF'
+          #!/bin/bash
+          if [[ "$*" == *"--version"* ]]; then
+              echo "Android (14043575, +pgo, +bolt, +lto, +mlgo, based on r536225) clang version 19.0.1 (https://android.googlesource.com/toolchain/llvm-project b3a530ec6537146650e42be89f1089e9a3588460)"
+              exit 0
+          fi
+          exec clang "$@"
+          EOF
         fi
-        exec clang "$@"
-        EOF
+        
         chmod +x cc-wrapper
