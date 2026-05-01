@@ -57,8 +57,8 @@ jobs:
           chmod +x rust/bin/bindgen
           rm clang-tools.tar.gz
           
-          # Build-tools
-          aria2c -s16 -x16 -k1M "https://android.googlesource.com/platform/prebuilts/build-tools/+archive/3fbcdf38727f967badc13f9537bda0b4392c1f74.tar.gz" -o build-tools.tar.gz
+          # Build-tools (从你自己的 Release 下载，内容与 MidoriKSU 一致)
+          aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/r536225/build-tools.tar.gz" -o build-tools.tar.gz
           mkdir -p build-tools
           tar -xzf build-tools.tar.gz --strip-components=1 -C build-tools/ linux-x86/
           rm build-tools.tar.gz
