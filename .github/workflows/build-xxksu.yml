@@ -30,21 +30,33 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             binutils python-is-python3 libssl-dev libelf-dev libdw-dev \
-            curl bison flex make git perl gcc bc zip unzip aria2
+            curl bison flex make git perl gcc bc zip unzip aria2 \
+            m4
 
       - name: Initialize Workspace & Toolchains
         run: |
           mkdir -p kernel_workspace && cd kernel_workspace 
-          aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/android16-6.12-2025-06.tar.gz" -o common.tar.gz
-          mkdir -p common
-          tar -xzf common.tar.gz -C common 
-          aria2c -s16 -x16 -k1M https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/clang-r536225.tar.gz -o clang.tar.gz
-          mkdir -p clang19 && tar -xzf clang.tar.gz -C clang19 && rm clang.tar.gz
-          aria2c -s16 -x16 -k1M https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/rust-1.82.0.tar.gz -o rust.tar.gz
-          mkdir -p rust && tar -xzf rust.tar.gz -C rust && rm rust.tar.gz 
-          aria2c -s16 -x16 -k1M https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/bindgen -o rust/bin/bindgen && chmod +x rust/bin/bindgen
-          aria2c -s16 -x16 -k1M https://github.com/MidoriKSU/dami-kernel-build/releases/download/0/build-tools.tar.gz -o build-tools.tar.gz
-          mkdir -p build-tools && tar -xzf build-tools.tar.gz --strip-components=1 -C build-tools/ linux-x86/ && rm build-tools.tar.gz
+          
+          # 内核源码
+          aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/android16-6.12-2025-06/android16-6.12-2025-06.tar.gz" -o common.tar.gz
+          mkdir -p common && tar -xzf common.tar.gz -C common && rm common.tar.gz
+          
+          # Clang
+          aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/r536225/clang-r536225.tar.gz" -o clang.tar.gz
+          mkdir -p clang && tar -xzf clang.tar.gz -C clang && rm clang.tar.gz
+          
+          # Rust
+          aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/r536225/rust-1.82.0.tar.gz" -o rust.tar.gz
+          mkdir -p rust && tar -xzf rust.tar.gz -C rust && rm rust.tar.gz
+          
+          # Clang-tools (bindgen, pahole)
+          aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/r536225/clang-tools-r536225.tar.gz" -o clang-tools.tar.gz
+          mkdir -p clang-tools && tar -xzf clang-tools.tar.gz -C clang-tools && rm clang-tools.tar.gz
+          
+          # Build-tools
+          aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/r536225/build-tools.tar.gz" -o build-tools.tar.gz
+          mkdir -p build-tools && tar -xzf build-tools.tar.gz -C build-tools && rm build-tools.tar.gz
+          
           sed -i 's/ -dirty//g' common/scripts/setlocalversion
 
       - name: Setup xxKSU
@@ -77,10 +89,12 @@ jobs:
       - name: Compile Kernel
         run: |
           WORKDIR="$(pwd)"
-          export PATH="$WORKDIR/kernel_workspace/clang19/bin:$PATH"
+          export PATH="$WORKDIR/kernel_workspace/clang/bin:$PATH"
           export PATH="$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
           export PATH="$WORKDIR/kernel_workspace/rust/bin:$PATH"
-          export CLANG_DIR="$WORKDIR/kernel_workspace/clang19/bin"
+          export PATH="$WORKDIR/kernel_workspace/clang-tools:$PATH"
+          
+          export CLANG_DIR="$WORKDIR/kernel_workspace/clang/bin"
           CLANG_VERSION="$($CLANG_DIR/clang --version | head -n 1)"
           LLD_VERSION="$($CLANG_DIR/ld.lld --version | head -n 1)"
           RUSTC_VERSION="$(rustc -V 2>/dev/null | head -n1)"
@@ -109,7 +123,7 @@ jobs:
           export RUSTC="rustc"
           export BINDGEN="bindgen"
           export CC="clang"
-          export LIBCLANG_PATH="$WORKDIR/kernel_workspace/clang19/lib"
+          export LIBCLANG_PATH="$WORKDIR/kernel_workspace/clang/lib"
           
           # 配置 KCFLAGS
           KCFLAGS+=" -no-canonical-prefixes"
