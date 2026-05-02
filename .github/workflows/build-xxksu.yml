@@ -81,40 +81,92 @@ jobs:
           variant: "xxksu"
           enable_susfs: "false"
 
-
       - name: Compile Kernel
         run: |
           WORKDIR="$(pwd)"
           export PATH="$WORKDIR/kernel_workspace/clang/bin:$PATH"
           export PATH="$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
-          export PATH="$WORKDIR/kernel_workspace/clang-tools/bin:$PATH"
+          export PATH="$WORKDIR/kernel_workspace/clang-tools:$PATH"
           export PATH="$WORKDIR/kernel_workspace/rust/bin:$PATH"
-          export LIBCLANG_PATH="$WORKDIR/kernel_workspace/clang/lib"
+          
+          export CLANG_DIR="$WORKDIR/kernel_workspace/clang/bin"
+          CLANG_VERSION="$($CLANG_DIR/clang --version | head -n 1)"
+          LLD_VERSION="$($CLANG_DIR/ld.lld --version | head -n 1)"
+          RUSTC_VERSION="$(rustc -V 2>/dev/null | head -n1)"
+          BINDGEN_VERSION="$(bindgen --version 2>/dev/null | head -n1)"
+          echo "编译器信息:"
+          echo "Clang版本: $CLANG_VERSION"
+          echo "LLD版本: $LLD_VERSION"
+          echo "Rustc版本: $RUSTC_VERSION"
+          echo "Bindgen版本: $BINDGEN_VERSION"
+          pahole_version=$(pahole --version 2>/dev/null | head -n1); [ -z "$pahole_version" ] && echo "pahole版本：未安装" || echo "pahole版本：$pahole_version"
           
           cd kernel_workspace/common
           
+          # 复制环境初始化脚本
+          cp ${{ github.workspace }}/_setup_env.sh ./ 2>/dev/null || true
+          chmod 777 ./*.sh 2>/dev/null || true
+          
+          # 路径重映射 (解决 gendwarfksyms bug)
           COMMON_REAL_PATH=$(pwd -P)
           ROOT_REAL_PATH=$(dirname "$COMMON_REAL_PATH")
           KCFLAGS+=" -fdebug-prefix-map=$ROOT_REAL_PATH=."
           KCFLAGS+=" -fmacro-prefix-map=$ROOT_REAL_PATH=."
           KCFLAGS+=" -ffile-prefix-map=$ROOT_REAL_PATH=."
-          KCFLAGS+=" -no-canonical-prefixes -O2 -pipe -Wno-error -fno-stack-protector -D__ANDROID_COMMON_KERNEL__"
+          
+          # 声明 Rust 工具
+          export RUSTC="rustc"
+          export BINDGEN="bindgen"
+          export CC="clang"
+          export LIBCLANG_PATH="$WORKDIR/kernel_workspace/clang/lib"
+          
+          # 配置 KCFLAGS
+          KCFLAGS+=" -no-canonical-prefixes"
+          KCFLAGS+=" -O2"
+          KCFLAGS+=" -pipe"
+          KCFLAGS+=" -Wno-error"
+          KCFLAGS+=" -fno-stack-protector"
+          KCFLAGS+=" -D__ANDROID_COMMON_KERNEL__"
           export KCFLAGS
+          
+          # 配置工具链
+          export HOSTCC=clang
+          export LD="ld.lld"
+          export HOSTLD=ld.lld
           export LLVM=1 LLVM_IAS=1
           export ARCH=arm64 SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
+          export AR=llvm-ar
+          export NM=llvm-nm
+          export AS=clang
+          export READELF=llvm-readelf
+          export OBJCOPY=llvm-objcopy
+          export OBJDUMP=llvm-objdump
+          export OBJSIZE=llvm-size
+          export STRIP=llvm-strip
           
-          cp ${{ github.workspace }}/_setup_env.sh ./ 2>/dev/null || true
-          chmod 777 ./*.sh 2>/dev/null || true
+          # 运行官方环境配置脚本
           source "./_setup_env.sh" 2>/dev/null || true
           
-          export SOURCE_DATE_EPOCH="${{ inputs.build_epoch }}"
-          export KBUILD_BUILD_TIMESTAMP="${{ inputs.build_timestamp }}"
-          export KBUILD_BUILD_HOST="${{ inputs.build_host }}"
-          export KBUILD_BUILD_USER="${{ inputs.build_user }}"
+          # 强制覆盖被脚本重置的时间变量
+          export SOURCE_DATE_EPOCH=1757653061
+          export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
+          export KBUILD_BUILD_HOST="build-host"
+          export KBUILD_BUILD_USER="kleaf"
           
-          make -j$(nproc --all) O=out ${TOOL_ARGS} gki_defconfig
-          make -j$(nproc --all) O=out ${TOOL_ARGS} Image
+          # 清理空间
+          sudo rm -rf /usr/share/dotnet &
+          sudo rm -rf /usr/local/lib/android &
+          sudo rm -rf /opt/ghc &
+          sudo rm -rf /opt/hostedtoolcache/CodeQL &
+          
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="clang" LD="ld.lld" OBJCOPY="llvm-objcopy" O=out gki_defconfig
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="clang" LD="ld.lld" OBJCOPY="llvm-objcopy" O=out Image
+          
+          echo "内核编译完成！"
+          echo "编译后空间:"
+          df -h
+
       - name: Package & Boot-Ready Check
         run: |
           cd kernel_workspace
