@@ -39,9 +39,6 @@ jobs:
           git fetch --depth=1 origin tag 2025063000
           git checkout 2025063000
           
-          # 修改 scripts/setlocalversion：在输出前截断版本字符串到 60 字符
-          sed -i 's/echo "\${res}\${EXTRAVERSION}"/res=$(echo "$res" | cut -c1-60); echo "${res}${EXTRAVERSION}"/' scripts/setlocalversion
-          
           cd ..
           
           # Clang
@@ -82,7 +79,7 @@ jobs:
         with:
           defconfig_path: "kernel_workspace/common/arch/arm64/configs/gki_defconfig"
           build_config_path: "kernel_workspace/common/build.config.gki"
-          variant: "grapheneos-xxksu"
+          variant: "xxksu"
           enable_susfs: "false"
 
       - name: Compile Kernel
@@ -138,6 +135,7 @@ jobs:
           sudo rm -rf /opt/ghc &
           sudo rm -rf /opt/hostedtoolcache/CodeQL &
           
+          # 使用 kernel-config action 已经注入了正确的 LOCALVERSION
           make -j$(nproc --all) O=out gki_defconfig
           make -j$(nproc --all) O=out Image
           
