@@ -38,27 +38,20 @@ jobs:
           cd common
           git fetch --depth=1 origin tag 2025063000
           git checkout 2025063000
-          
           cd ..
           
-          # Clang
+          # 下载编译器组件
           aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/r536225/clang-r536225.tar.gz" -o clang.tar.gz
           mkdir -p clang && tar -xzf clang.tar.gz -C clang && rm clang.tar.gz
           
-          # Rust
           aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/r536225/rust-1.82.0.tar.gz" -o rust.tar.gz
           mkdir -p rust && tar -xzf rust.tar.gz -C rust && rm rust.tar.gz
           
-          # Clang-tools (bindgen, pahole)
           aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/r536225/clang-tools-r536225.tar.gz" -o clang-tools.tar.gz
           mkdir -p clang-tools && tar -xzf clang-tools.tar.gz -C clang-tools && rm clang-tools.tar.gz
           
-          # Build-tools
           aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/r536225/build-tools.tar.gz" -o build-tools.tar.gz
           mkdir -p build-tools && tar -xzf build-tools.tar.gz -C build-tools && rm build-tools.tar.gz
-          
-          # 修改 setlocalversion 去除 dirty 标记
-          sed -i 's/ -dirty//g' common/scripts/setlocalversion
 
       - name: Setup xxKSU
         run: |
@@ -90,13 +83,21 @@ jobs:
           export PATH="$WORKDIR/kernel_workspace/clang-tools:$PATH"
           export PATH="$WORKDIR/kernel_workspace/rust/bin:$PATH"
           
-          echo "Clang version: $(clang --version | head -1)"
-          echo "Rustc version: $(rustc -V 2>/dev/null | head -1)"
-          echo "Bindgen version: $(bindgen --version 2>/dev/null | head -1)"
-          echo "pahole version: $(pahole --version 2>/dev/null | head -1 || echo '未安装')"
-          
           cd kernel_workspace/common
           
+          # =====================================================================
+          # 核心修复：防止 UTS_RELEASE 超过 64 字符
+          # =====================================================================
+          # 既然注入了 53 位的长 LOCALVERSION，必须禁止内核脚本追加 Git Hash 后缀
+          # 否则：6.12.30 + 53字节 + Git后缀(14字节) = 74字节 (>64 报错)
+          echo "Force cleaning setlocalversion to prevent string overflow..."
+          echo "#!/bin/sh" > scripts/setlocalversion
+          echo "exit 0" >> scripts/setlocalversion
+          chmod +x scripts/setlocalversion
+          # 禁用环境变量层面的自动版本
+          export LOCALVERSION_AUTO=none
+          # =====================================================================
+
           COMMON_REAL_PATH=$(pwd -P)
           ROOT_REAL_PATH=$(dirname "$COMMON_REAL_PATH")
           KCFLAGS=" -fdebug-prefix-map=$ROOT_REAL_PATH=."
@@ -121,36 +122,30 @@ jobs:
           export READELF=llvm-readelf
           export STRIP=llvm-strip
           
-          cp ${{ github.workspace }}/_setup_env.sh ./ 2>/dev/null || true
-          chmod 777 ./*.sh 2>/dev/null || true
-          source "./_setup_env.sh" 2>/dev/null || true
-          
           export SOURCE_DATE_EPOCH=1757653061
           export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
           export KBUILD_BUILD_HOST="build-host"
           export KBUILD_BUILD_USER="kleaf"
           
-          sudo rm -rf /usr/share/dotnet &
-          sudo rm -rf /usr/local/lib/android &
-          sudo rm -rf /opt/ghc &
-          sudo rm -rf /opt/hostedtoolcache/CodeQL &
-          
-          # 使用 kernel-config action 已经注入了正确的 LOCALVERSION
+          # 开始编译
           make -j$(nproc --all) O=out gki_defconfig
           make -j$(nproc --all) O=out Image
           
           echo "内核编译完成！"
-          echo "编译后空间:"
           df -h
 
       - name: Package & Boot-Ready Check
         run: |
           cd kernel_workspace
           IMAGE="./common/out/arch/arm64/boot/Image"
-          [ -f "$IMAGE" ] || (echo " Image binary missing!" && exit 1)
+          if [ ! -f "$IMAGE" ]; then
+            echo "Error: Image binary missing!"
+            exit 1
+          fi
 
           git clone https://github.com/yapixel/AnyKernel3 --depth=1
-          cp "$IMAGE" ./AnyKernel3/ && cd AnyKernel3
+          cp "$IMAGE" ./AnyKernel3/
+          cd AnyKernel3
 
           BUILD_DATE="$(date +'%y%m%d')"
           ZIP_NAME="grapheneos-xxksu_6.12.30-${BUILD_DATE}.zip"
