@@ -1,16 +1,16 @@
-name: Build GrapheneOS Kernel Test
+name: Build GrapheneOS + xxKSU Kernel Test
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build GrapheneOS 6.12 Kernel
+    name: Build GrapheneOS 6.12.30 + xxKSU
     runs-on: ubuntu-latest
     timeout-minutes: 300
     env:
       ANDROID_VERSION: 'android16'
-      KERNEL_VERSION: '6.12.23'
+      KERNEL_VERSION: '6.12.30'
 
     steps:
       - name: Checkout Repository
@@ -38,6 +38,10 @@ jobs:
           cd common
           git fetch --depth=1 origin tag 2025063000
           git checkout 2025063000
+          
+          # 只删除 graphene 自定义的 commit hash 后缀，保留其他信息
+          sed -i 's/-g[0-9a-f]\{12\}$//' scripts/setlocalversion
+          
           cd ..
           
           # Clang
@@ -56,14 +60,29 @@ jobs:
           aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/r536225/build-tools.tar.gz" -o build-tools.tar.gz
           mkdir -p build-tools && tar -xzf build-tools.tar.gz -C build-tools && rm build-tools.tar.gz
           
+          # 修改 setlocalversion 去除 dirty 标记
           sed -i 's/ -dirty//g' common/scripts/setlocalversion
+
+      - name: Setup xxKSU
+        run: |
+          cd kernel_workspace/common
+          git clone --depth=1 --branch=master https://github.com/backslashxx/KernelSU.git KernelSU
+          ln -sf ../KernelSU/kernel drivers/kernelsu
+          grep -q "kernelsu" drivers/Makefile || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+          grep -q "kernelsu" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+
+      - name: Apply Patches xxKSU (Security & Scope Hooks)
+        run: |
+          cd kernel_workspace/common
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/manual-security-hooks-v1.9.patch"
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-manual-hooks-v2.0.patch"
 
       - name: Inject Defconfig Flags
         uses: ./.github/actions/kernel-config
         with:
           defconfig_path: "kernel_workspace/common/arch/arm64/configs/gki_defconfig"
           build_config_path: "kernel_workspace/common/build.config.gki"
-          variant: "grapheneos-test"
+          variant: "grapheneos-xxksu"
           enable_susfs: "false"
 
       - name: Compile Kernel
@@ -136,12 +155,12 @@ jobs:
           cp "$IMAGE" ./AnyKernel3/ && cd AnyKernel3
 
           BUILD_DATE="$(date +'%y%m%d')"
-          ZIP_NAME="grapheneos-test_6.12.23-${BUILD_DATE}.zip"
+          ZIP_NAME="grapheneos-xxksu_6.12.30-${BUILD_DATE}.zip"
           zip -r9 "../$ZIP_NAME" *
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v7.0.0
         with:
-          name: kernel-grapheneos-test
+          name: kernel-grapheneos-xxksu
           path: kernel_workspace/${{ env.ZIP_NAME }}
