@@ -1,0 +1,34 @@
+--- a/security/Kconfig
++++ b/security/Kconfig
+@@ -268,7 +268,7 @@
+  default "landlock,lockdown,yama,loadpin,safesetid,apparmor,selinux,smack,tomoyo,ipe,bpf" if DEFAULT_SECURITY_APPARMOR
+  default "landlock,lockdown,yama,loadpin,safesetid,tomoyo,ipe,bpf" if DEFAULT_SECURITY_TOMOYO
+  default "landlock,lockdown,yama,loadpin,safesetid,ipe,bpf" if DEFAULT_SECURITY_DAC
+- default "landlock,lockdown,yama,loadpin,safesetid,selinux,smack,tomoyo,apparmor,ipe,bpf"
++ default "landlock,lockdown,yama,loadpin,safesetid,selinux,smack,tomoyo,apparmor,ipe,bpf,ksu"
+  help
+    A comma-separated list of LSMs, in initialization order.
+    Any LSMs left off this list, except for those with order--- a/include/linux/lsm_count.h 2026-05-04 18:20:56.491512050 +0800
++++ b/include/linux/lsm_count.h 2026-05-04 18:20:04.048944931 +0800
+@@ -102,6 +102,12 @@
+ #define IPE_ENABLED
+ #endif
+ 
++#if IS_ENABLED(CONFIG_KSU)
++#define KSU_ENABLED 1,
++#else
++#define KSU_ENABLED
++#endif
++
+ /*
+  *  There is a trailing comma that we need to be accounted for. This is done by
+  *  using a skipped argument in __COUNT_LSMS
+@@ -124,7 +130,8 @@
+   LANDLOCK_ENABLED \
+   IMA_ENABLED  \
+   EVM_ENABLED  \
+-  IPE_ENABLED)
++  IPE_ENABLED  \
++  KSU_ENABLED)
+ 
+ #else
