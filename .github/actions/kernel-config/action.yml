@@ -88,8 +88,6 @@ runs:
         CONFIG_KSU_LSM_SECURITY_HOOKS=n
         CONFIG_KSU_TAMPER_SYSCALL_TABLE=n
         KSU_KPROBES_KSUD=n
-        CONFIG_FUNCTION_TRACER=y
-        CONFIG_DYNAMIC_FTRACE=y
         EOF
         elif [[ "${{ inputs.variant }}" == *"kowsu"* ]]; then
           cat >> $DEFCONFIG <<-'EOF'
