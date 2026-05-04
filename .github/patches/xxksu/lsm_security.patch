@@ -8,7 +8,9 @@
 + default "landlock,lockdown,yama,loadpin,safesetid,selinux,smack,tomoyo,apparmor,ipe,bpf,ksu"
   help
     A comma-separated list of LSMs, in initialization order.
-    Any LSMs left off this list, except for those with order--- a/include/linux/lsm_count.h 2026-05-04 18:20:56.491512050 +0800
+    Any LSMs left off this list, except for those with order
+    
+--- a/include/linux/lsm_count.h 2026-05-04 18:20:56.491512050 +0800
 +++ b/include/linux/lsm_count.h 2026-05-04 18:20:04.048944931 +0800
 @@ -102,6 +102,12 @@
  #define IPE_ENABLED
