@@ -1,21 +1,23 @@
-name: Build xxKSU (Standalone Test)
+name: Build xxKSU
 
-# 修改点 1: 改为独立触发，支持手动运行和推送到 main 分支时自动运行
 on:
-  push:
-    branches: [ main ]
+  workflow_call:
+    inputs:
+      sub_level:
+        required: true
+        type: string
+  
   workflow_dispatch:
     inputs:
       sub_level:
-        description: 'Kernel sub level (e.g. 100)'
+        description: 'Kernel sub level (e.g. 23)'
         required: true
         type: string
-        default: '100'
+        default: '23'
 
 jobs:
   build:
-    # 修改点 2: 从 workflow_call 的 inputs 改为从独立触发事件中获取 sub_level
-    name: xxKSU 6.12.${{ inputs.sub_level || '100' }} (2025-06_r58)
+    name: xxKSU 6.12.${{ inputs.sub_level || github.event.inputs.sub_level || '23' }} (2025-06_r58)
     runs-on: ubuntu-latest
     timeout-minutes: 300
     env:
@@ -172,3 +174,15 @@ jobs:
         with:
           name: kernel-xxksu
           path: kernel_workspace/${{ env.ZIP_NAME }}
+
+  # =============================================
+  # 新增 Job: 调用 Release Workflow 发布构建产物
+  # =============================================
+  publish-release:
+    needs: build
+    uses: ./.github/workflows/release.yml
+    with:
+      ksu_variant: 'xxksu'
+      sub_level: ${{ inputs.sub_level || github.event.inputs.sub_level || '100' }}
+      kernel_ver: '6.12'
+    secrets: inherit
