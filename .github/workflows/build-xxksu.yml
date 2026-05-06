@@ -14,10 +14,10 @@ on:
   workflow_dispatch:
     inputs:
       sub_level:
-        description: 'Kernel sub level (e.g. 100)'
+        description: 'Kernel sub level (e.g. 23)'
         required: true
         type: string
-        default: '100'
+        default: '23'
 
 jobs:
   build:
@@ -51,7 +51,7 @@ jobs:
           mkdir -p kernel_workspace && cd kernel_workspace 
           
           # 内核源码
-          aria2c -s16 -x16 -k1M "https://android.googlesource.com/kernel/common/+archive/refs/tags/android16-6.12-2025-06.tar.gz" -o common.tar.gz
+          aria2c -s16 -x16 -k1M "https://android.googlesource.com/kernel/common/+archive/refs/heads/android16-6.12-2025-06.tar.gz" -o common.tar.gz
           mkdir -p common && tar -xzf common.tar.gz -C common && rm common.tar.gz
           
           # Clang
