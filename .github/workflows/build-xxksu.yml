@@ -1,20 +1,27 @@
-name: Module Build xxKSU
+name: Build xxKSU (Standalone Test)
 
+# 修改点 1: 改为独立触发，支持手动运行和推送到 main 分支时自动运行
 on:
-  workflow_call:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
     inputs:
       sub_level:
+        description: 'Kernel sub level (e.g. 100)'
         required: true
         type: string
+        default: '100'
 
 jobs:
   build:
-    name: xxKSU 6.12.${{ inputs.sub_level }}
+    # 修改点 2: 从 workflow_call 的 inputs 改为从独立触发事件中获取 sub_level
+    name: xxKSU 6.12.${{ inputs.sub_level || '100' }} (2025-06_r58)
     runs-on: ubuntu-latest
     timeout-minutes: 300
     env:
       ANDROID_VERSION: 'android16'
       KERNEL_VERSION: '6.12'
+      RELEASE_TAG: '2025-06_r58'
 
     steps:
       - name: Checkout Repository
@@ -37,9 +44,9 @@ jobs:
         run: |
           mkdir -p kernel_workspace && cd kernel_workspace 
           
-          # 内核源码
-          aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/android16-6.12-2025-06/android16-6.12-2025-06.tar.gz" -o common.tar.gz
-          mkdir -p common && tar -xzf common.tar.gz -C common && rm common.tar.gz
+          # 内核源码 - r58 版本
+          aria2c -s16 -x16 -k1M "https://android.googlesource.com/kernel/common/+archive/refs/tags/android16-6.12-2025-06_r58.tar.gz" -o common-r58.tar.gz
+          mkdir -p common && tar -xzf common-r58.tar.gz -C common && rm common-r58.tar.gz
           
           # Clang
           aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/r536225/clang-r536225.tar.gz" -o clang.tar.gz
@@ -157,8 +164,7 @@ jobs:
           cp "$IMAGE" ./AnyKernel3/ && cd AnyKernel3
 
           BUILD_DATE="$(date +'%y%m%d')"
-          ZIP_NAME="xxksu_popsicle_6.12.${{ inputs.sub_level }}-${BUILD_DATE}.zip"
-          zip -r9 "../$ZIP_NAME" *
+          ZIP_NAME="xxksu_popsicle_6.12.${{ inputs.sub_level || github.event.inputs.sub_level || '100' }}-${RELEASE_TAG}-${BUILD_DATE}.zip"
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: Upload Build Artifact
