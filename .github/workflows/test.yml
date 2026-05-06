@@ -123,15 +123,21 @@ jobs:
           variant: "xxksu"
           enable_susfs: "false"
 
+      - name: Setup cc-wrapper for Clang version spoofing
+        uses: ./.github/actions/setup-cc-wrapper
+        with:
+          workdir: kernel_workspace/common
+
       - name: Compile Kernel
         run: |
           WORKDIR="$(pwd)"
+          export PATH="$WORKDIR/kernel_workspace/common:$PATH"
           export PATH="$WORKDIR/kernel_workspace/clang/bin:$PATH"
           export PATH="$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
           export PATH="$WORKDIR/kernel_workspace/clang-tools:$PATH"
           export PATH="$WORKDIR/kernel_workspace/rust/bin:$PATH"
           
-          echo "Clang version: $(clang --version | head -1)"
+          echo "Clang version: $(cc-wrapper --version | head -1)"
           echo "Rustc version: $(rustc -V 2>/dev/null | head -1)"
           echo "Bindgen version: $(bindgen --version 2>/dev/null | head -1)"
           echo "pahole version: $(pahole --version 2>/dev/null | head -1 || echo '未安装')"
@@ -153,7 +159,7 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export HOSTCC=clang
           export HOSTLD=ld.lld
-          export CC=clang
+          export CC=cc-wrapper
           export LD=ld.lld
           export AR=llvm-ar
           export NM=llvm-nm
