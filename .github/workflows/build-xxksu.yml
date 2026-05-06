@@ -183,7 +183,7 @@ jobs:
           KSU_VER="${{ steps.ksu_ver.outputs.ksu_ver }}"
           SHORT_HASH="${{ steps.kernel_hash.outputs.short_hash }}"
           
-          ZIP_NAME="KSU_popsicle_6.12.${SUB}_${KSU_VER#v}_${SHORT_HASH}.zip"
+          ZIP_NAME="KSU_popsicle_6.12.${SUB}+${KSU_VER#v}-${SHORT_HASH}.zip"
           zip -r9 "../$ZIP_NAME" *
           cd ..
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
