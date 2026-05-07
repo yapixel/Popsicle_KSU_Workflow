@@ -73,6 +73,9 @@ jobs:
           # Clang
           aria2c -s16 -x16 -k1M "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android16-release/clang-r547379.tar.gz" -o clang.tar.gz
           mkdir -p clang && tar -xzf clang.tar.gz -C clang && rm clang.tar.gz
+          echo "=== Clang directory structure ==="
+          ls -la clang/
+          find clang/ -name "clang" -type f 2>/dev/null || echo "clang binary not found"
           
           # Rust
           aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/1.0/rust-1.83.0.tar.gz" -o rust.tar.gz
