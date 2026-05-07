@@ -1,4 +1,4 @@
-name: 'Inject Kernel Configs'
+name: 'Inject  Kernel Configs'
 description: 'Applies standard networking, performance, and KSU flags'
 inputs:
   defconfig_path:
@@ -14,10 +14,6 @@ inputs:
     description: 'Set to "true" to inject SuSFS configs'
     required: false
     default: 'false'
-  ksu_branch:
-    description: 'xxKSU branch (master/staging)'
-    required: false
-    default: 'master'
 
 runs:
   using: "composite"
@@ -86,25 +82,13 @@ runs:
 
         # Variant-Specific KSU Logic
         if [ "${{ inputs.variant }}" = "xxksu" ]; then
-          if [ "${{ inputs.ksu_branch }}" = "staging" ]; then
-            # staging 分支配置
-            cat >> $DEFCONFIG <<-'EOF'
-        CONFIG_KSU=y
-        CONFIG_KSU_EXTRAS=y
-        CONFIG_KSU_LSM_SECURITY_HOOKS=y
-        CONFIG_KSU_TAMPER_SYSCALL_TABLE=n
-        CONFIG_KSU_KPROBES_KSUD=n
-        EOF
-          else
-            # master 分支配置（保持原有）
-            cat >> $DEFCONFIG <<-'EOF'
+        cat >> $DEFCONFIG <<-'EOF'
         CONFIG_KSU=y
         CONFIG_KSU_EXTRAS=y
         CONFIG_KSU_LSM_SECURITY_HOOKS=n
         CONFIG_KSU_TAMPER_SYSCALL_TABLE=n
-        CONFIG_KSU_KPROBES_KSUD=n
+        KSU_KPROBES_KSUD=n
         EOF
-          fi
         elif [[ "${{ inputs.variant }}" == *"kowsu"* ]]; then
           cat >> $DEFCONFIG <<-'EOF'
         CONFIG_KSU=y
