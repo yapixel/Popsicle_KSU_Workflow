@@ -126,6 +126,7 @@ jobs:
           build_config_path: "kernel_workspace/common/build.config.gki"
           variant: "xxksu"
           enable_susfs: "false"
+          ksu_branch: ${{ inputs.ksu_branch || github.event.inputs.ksu_branch || 'master' }}
 
       - name: Setup cc-wrapper for Clang version spoofing
         uses: ./.github/actions/setup-cc-wrapper
