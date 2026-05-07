@@ -124,10 +124,6 @@ jobs:
           variant: "xxksu"
           enable_susfs: "false"
 
-      - name: Setup cc-wrapper for Clang version spoofing
-        uses: ./.github/actions/setup-cc-wrapper
-        with:
-          workdir: kernel_workspace/common
 
       - name: Compile Kernel
         run: |
@@ -160,7 +156,7 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export HOSTCC=clang
           export HOSTLD=ld.lld
-          export CC=cc-wrapper
+          export CC=clang
           export LD=ld.lld
           export AR=llvm-ar
           export NM=llvm-nm
