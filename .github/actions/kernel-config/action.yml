@@ -93,7 +93,7 @@ runs:
         CONFIG_KSU_EXTRAS=y
         CONFIG_KSU_LSM_SECURITY_HOOKS=y
         CONFIG_KSU_TAMPER_SYSCALL_TABLE=n
-        KSU_KPROBES_KSUD=n
+        CONFIG_KSU_KPROBES_KSUD=n
         EOF
           else
             # master 分支配置（保持原有）
