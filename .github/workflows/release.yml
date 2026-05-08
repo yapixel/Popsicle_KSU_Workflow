@@ -1,5 +1,4 @@
 name: Release · Publish Artifacts
-
 on:
   workflow_call:
     inputs:
@@ -12,83 +11,60 @@ on:
       kernel_ver:
         required: true
         type: string
-
+      build_date:
+        required: true
+        type: string
 permissions:
   contents: write
-
 jobs:
   release:
-    name: Publish · ${{ inputs.kernel_ver }} · android16-6.12-2025-06_r58
+    name: Publish · ${{ inputs.kernel_ver }}.${{ inputs.sub_level }} · ${{ inputs.build_date }}
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
-
+        uses: actions/checkout@v4
       - name: Download Build Artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           pattern: 'kernel-*'
           path: release_zips
           merge-multiple: true
-
       - name: Compose Release Body
         run: |
           KV="${{ inputs.kernel_ver }}"
           SUB="${{ inputs.sub_level }}"
+          DATE="${{ inputs.build_date }}"
+          VARIANT="${{ inputs.ksu_variant }}"
           
           cat <<RELEASE_BODY > release_body.md
-          # Popsicle GKI Kernel — android16-${KV}-2025-06_r58
-
-          **Android 16 GKI kernel for Xiaomi Popsicle (SM8850 / Snapdragon 8 Elite)**
-
-          > Built: $(date -u +'%Y-%m-%d %H:%M UTC') · Compiler: Clang 19.0.1 · LTO: Full
-
+          # Popsicle GKI Kernel — ${KV}.${SUB}
+          **Android 16 GKI kernel for Xiaomi Popsicle (Snapdragon 8 Elite)**
+          > **Build ID:** ${DATE}
+          > **Variant:** ${VARIANT}
           ---
-
-          ## Variant
-
-          | KSU Type | Upstream |
-          |----------|----------|
-          | **xxKSU** | [backslashxx/KernelSU](https://github.com/backslashxx/KernelSU) |
-
-          ---
-
           ## Technical Details
 
-          | Item | Value |
-          |------|-------|
-          | Kernel | ${KV}.${SUB} |
-          | Android | 16 |
-          | KMI | Bypassed |
-          | Congestion Control | BBR |
-          | IPSet | Full suite |
-          | Format | AnyKernel3 |
+| Item | Value |
+| :--- | :--- |
+| Kernel | ${KV}.${SUB} |
+| Build Date | 20${DATE} |
+| KSU Type | ${VARIANT} |
+| Networking | BBR + TProxy + IPSet |
+| Format | AnyKernel3 |
 
           ---
-
           ## Installation
-
-          ```
-          1. Reboot to recovery (TWRP recommended)
-          2. Flash KSU_popsicle_*.zip
-          3. Reboot and install KernelSU manager
-          ```
-
-          > Backup your current boot image before flashing. This build is provided as-is without warranty.
-
+          1. Flash via Kernel Flasher or Recovery.
+          2. Reboot and install KernelSU Manager.
           ---
-
           ## Credits
-
           - [backslashxx/KernelSU](https://github.com/backslashxx/KernelSU)
           - [osm0sis/AnyKernel3](https://github.com/osm0sis/AnyKernel3)
           RELEASE_BODY
-
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v3.0.0
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: "android16-6.12-2025-06_r58"
-          name: "android16-6.12-2025-06_r58"
+          tag_name: "${{ inputs.kernel_ver }}.${{ inputs.sub_level }}-${{ inputs.build_date }}"
+          name: "Popsicle GKI ${{ inputs.kernel_ver }}.${{ inputs.sub_level }} (${{ inputs.build_date }})"
           body_path: release_body.md
           files: release_zips/*.zip
