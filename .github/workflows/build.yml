@@ -1,4 +1,4 @@
-name: Test Build GKI xxKSU
+name: Build GKI with xxKSU
 
 permissions:
   contents: write
