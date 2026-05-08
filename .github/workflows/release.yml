@@ -84,6 +84,6 @@ jobs:
         uses: softprops/action-gh-release@v3.0.0
         with:
           tag_name: "android16-6.12-2025-06_r58"
-          name: "🌟 Popsicle GKI ${{ inputs.kernel_ver }} · android16-6.12-2025-06_r58"
+          name: "android16-6.12-2025-06_r58"
           body_path: release_body.md
           files: release_zips/*.zip
