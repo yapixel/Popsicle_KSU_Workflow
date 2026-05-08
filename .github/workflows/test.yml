@@ -1,4 +1,4 @@
-name: Test Build xxKSU
+name: Build GKI xxKSU
 
 permissions:
   contents: write
@@ -9,10 +9,6 @@ on:
       sub_level:
         required: true
         type: string
-      ksu_branch:
-        required: false
-        type: string
-        default: 'master'
   push:
     branches: [ main ]
   workflow_dispatch:
@@ -22,35 +18,26 @@ on:
         required: true
         type: string
         default: '23'
-      ksu_branch:
-        description: 'xxKSU branch (master/staging)'
-        required: true
-        type: choice
-        options:
-          - master
-          - staging
-        default: 'master'
 
 jobs:
   build:
-    name: xxKSU 6.12.${{ inputs.sub_level || github.event.inputs.sub_level || '23' }} (${{ inputs.ksu_branch || github.event.inputs.ksu_branch || 'master' }}) (android16-6.12-2025-06_r58)
+    name: xxKSU 6.12.${{ inputs.sub_level || github.event.inputs.sub_level || '23' }} (2025-06)
     runs-on: ubuntu-latest
     timeout-minutes: 300
     env:
       ANDROID_VERSION: 'android16'
       KERNEL_VERSION: '6.12'
-      RELEASE_TAG: 'android16-6.12-2025-06_r58'
+      RELEASE_TAG: '2025-06_r58'
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
+        with:
+          clean: false
+          submodules: true
 
       - name: Free Disk Space & Install Dependencies
         run: |
-          # 卸载 runner 自带的 Clang/LLVM
-          sudo apt-get purge -y clang-* llvm-* lld-* 2>/dev/null || true
-          sudo apt-get autoremove -y 2>/dev/null || true
-          
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
           sudo docker image prune -af 2>/dev/null || true
           sudo apt-get update -qq
@@ -64,15 +51,15 @@ jobs:
           mkdir -p kernel_workspace && cd kernel_workspace 
           
           # 内核源码
-          aria2c -s16 -x16 -k1M "https://android.googlesource.com/kernel/common/+archive/refs/tags/android16-6.12-2025-06_r58.tar.gz" -o common.tar.gz
+          aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/android16-6.12-2025-06_r58/common-android16-6.12-2025-06_r58.tar.gz" -o common.tar.gz
           mkdir -p common && tar -xzf common.tar.gz -C common && rm common.tar.gz
           
           # Clang
-          aria2c -s16 -x16 -k1M "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android16-release/clang-r547379.tar.gz" -o clang.tar.gz
+          aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/r536225/clang-r536225.tar.gz" -o clang.tar.gz
           mkdir -p clang && tar -xzf clang.tar.gz -C clang && rm clang.tar.gz
           
           # Rust
-          aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/1.0/rust-1.83.0.tar.gz" -o rust.tar.gz
+          aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/r536225/rust-1.82.0.tar.gz" -o rust.tar.gz
           mkdir -p rust && tar -xzf rust.tar.gz -C rust && rm rust.tar.gz
           
           # Clang-tools (bindgen, pahole)
@@ -85,32 +72,6 @@ jobs:
           
           sed -i 's/ -dirty//g' common/scripts/setlocalversion
           
-          # 保存 Clang 绝对路径供后续步骤使用
-          echo "CLANG_HOME=$PWD/clang" >> $GITHUB_ENV
-
-      - name: Setup xxKSU
-        run: |
-          cd kernel_workspace/common
-          git clone --depth=1 --branch=${{ inputs.ksu_branch || github.event.inputs.ksu_branch || 'master' }} https://github.com/backslashxx/KernelSU.git KernelSU
-          ln -sf ../KernelSU/kernel drivers/kernelsu
-          grep -q "kernelsu" drivers/Makefile || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
-          grep -q "kernelsu" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
-
-      - name: Integrate xxKSU
-        run: |
-          cd kernel_workspace/common
-          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/lsm_security.patch"
-          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-manual-hooks-v2.0.patch"
-
-      - name: Get KSU Version
-        id: ksu_ver
-        run: |
-          git clone --depth=1 https://github.com/TheSillyOk/sh.git scripts
-          KSU_BRANCH="${{ inputs.ksu_branch || github.event.inputs.ksu_branch || 'master' }}"
-          KSU_VER=$(./scripts/get_ksuver.sh "backslashxx" "KernelSU" "$KSU_BRANCH" || echo "unknown")
-          echo "KSU version: $KSU_VER"
-          echo "ksu_ver=$KSU_VER" >> $GITHUB_OUTPUT
-
       - name: Get Kernel Short Hash
         id: kernel_hash
         run: |
@@ -119,6 +80,28 @@ jobs:
           echo "Kernel short hash: $SHORT_HASH"
           echo "short_hash=$SHORT_HASH" >> $GITHUB_OUTPUT
 
+      - name: Setup xxKSU
+        run: |
+          cd kernel_workspace/common
+          git clone --depth=1 --branch=master https://github.com/backslashxx/KernelSU.git KernelSU
+          ln -sf ../KernelSU/kernel drivers/kernelsu
+          grep -q "kernelsu" drivers/Makefile || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+          grep -q "kernelsu" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+
+      - name: Integrate xxKSU
+        run: |
+          cd kernel_workspace/common
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/manual-security-hooks-v1.9.patch"
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-manual-hooks-v2.0.patch"
+
+      - name: Get KSU Version
+        id: ksu_ver
+        run: |
+          git clone --depth=1 https://github.com/TheSillyOk/sh.git scripts
+          KSU_VER=$(./scripts/get_ksuver.sh "backslashxx" "KernelSU" "master" || echo "unknown")
+          echo "KSU version: $KSU_VER"
+          echo "ksu_ver=$KSU_VER" >> $GITHUB_OUTPUT
+
       - name: Inject Defconfig Flags
         uses: ./.github/actions/kernel-config
         with:
@@ -126,24 +109,16 @@ jobs:
           build_config_path: "kernel_workspace/common/build.config.gki"
           variant: "xxksu"
           enable_susfs: "false"
-          ksu_branch: ${{ inputs.ksu_branch || github.event.inputs.ksu_branch || 'master' }}
-
-      - name: Setup cc-wrapper for Clang version spoofing
-        uses: ./.github/actions/setup-cc-wrapper
-        with:
-          workdir: kernel_workspace/common
-          clang_dir: ${{ env.CLANG_HOME }}
 
       - name: Compile Kernel
         run: |
           WORKDIR="$(pwd)"
-          export PATH="$WORKDIR/kernel_workspace/common:$PATH"
-          export PATH="$CLANG_HOME/bin:$PATH"
+          export PATH="$WORKDIR/kernel_workspace/clang/bin:$PATH"
           export PATH="$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
           export PATH="$WORKDIR/kernel_workspace/clang-tools:$PATH"
           export PATH="$WORKDIR/kernel_workspace/rust/bin:$PATH"
           
-          echo "Clang version: $(cc-wrapper --version | head -1)"
+          echo "Clang version: $(clang --version | head -1)"
           echo "Rustc version: $(rustc -V 2>/dev/null | head -1)"
           echo "Bindgen version: $(bindgen --version 2>/dev/null | head -1)"
           echo "pahole version: $(pahole --version 2>/dev/null | head -1 || echo '未安装')"
@@ -165,7 +140,7 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export HOSTCC=clang
           export HOSTLD=ld.lld
-          export CC=cc-wrapper
+          export CC=clang
           export LD=ld.lld
           export AR=llvm-ar
           export NM=llvm-nm
@@ -224,6 +199,6 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       ksu_variant: 'xxksu'
-      sub_level: ${{ inputs.sub_level || github.event.inputs.sub_level || '100' }}
+      sub_level: ${{ inputs.sub_level || github.event.inputs.sub_level || '23' }}
       kernel_ver: '6.12'
     secrets: inherit
