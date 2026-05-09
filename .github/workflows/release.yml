@@ -47,7 +47,7 @@ jobs:
           | Item | Value |
           | :--- | :--- |
           | Kernel | ${KV}.${SUB} |
-          | Build Date | 20${DATE} |
+          | Build Date | ${DATE} |
           | KSU Type | ${VARIANT} |
           | Networking | BBR + TProxy + IPSet |
           | Format | AnyKernel3 |
