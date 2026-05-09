@@ -72,14 +72,6 @@ jobs:
           mkdir -p build-tools && tar -xzf build-tools.tar.gz -C build-tools && rm build-tools.tar.gz
           
           sed -i 's/ -dirty//g' common/scripts/setlocalversion
-          
-      - name: Get Kernel Short Hash
-        id: kernel_hash
-        run: |
-          cd kernel_workspace/common
-          SHORT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-          echo "Kernel short hash: $SHORT_HASH"
-          echo "short_hash=$SHORT_HASH" >> $GITHUB_OUTPUT
 
       - name: Setup xxKSU
         run: |
@@ -189,9 +181,9 @@ jobs:
 
           SUB="${{ inputs.sub_level || github.event.inputs.sub_level || '100' }}"
           KSU_VER="${{ steps.ksu_ver.outputs.ksu_ver }}"
-          SHORT_HASH="${{ steps.kernel_hash.outputs.short_hash }}"
+          BUILD_DATE="${{ steps.build_date.outputs.build_date }}"
           
-          ZIP_NAME="KSU_popsicle_6.12.${SUB}+${KSU_VER#v}-${SHORT_HASH}.zip"
+          ZIP_NAME="KSU_popsicle_6.12.${SUB}+${KSU_VER#v}-${BUILD_DATE}.zip"
           zip -r9 "../$ZIP_NAME" *
           cd ..
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
