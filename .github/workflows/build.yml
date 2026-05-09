@@ -21,13 +21,14 @@ on:
 
 jobs:
   build:
+    outputs:
+      build_date: ${{ steps.build_date.outputs.build_date }}
     name: xxKSU 6.12.${{ inputs.sub_level || github.event.inputs.sub_level || '23' }} (2025-06)
     runs-on: ubuntu-latest
     timeout-minutes: 300
     env:
       ANDROID_VERSION: 'android16'
       KERNEL_VERSION: '6.12'
-      RELEASE_TAG: '2025-06_r58'
 
     steps:
       - name: Checkout Repository
@@ -101,6 +102,13 @@ jobs:
           KSU_VER=$(./scripts/get_ksuver.sh "backslashxx" "KernelSU" "master" || echo "unknown")
           echo "KSU version: $KSU_VER"
           echo "ksu_ver=$KSU_VER" >> $GITHUB_OUTPUT
+
+      - name: Get Build Date
+        id: build_date
+        run: |
+          BUILD_DATE=$(date +'%y%m%d')
+          echo "Build date: $BUILD_DATE"
+          echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
 
       - name: Inject Defconfig Flags
         uses: ./.github/actions/kernel-config
@@ -201,4 +209,5 @@ jobs:
       ksu_variant: 'xxksu'
       sub_level: ${{ inputs.sub_level || github.event.inputs.sub_level || '23' }}
       kernel_ver: '6.12'
+      build_date: ${{ needs.build.outputs.build_date }}
     secrets: inherit
