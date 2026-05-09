@@ -164,6 +164,8 @@ jobs:
           sudo rm -rf /usr/local/lib/android &
           sudo rm -rf /opt/ghc &
           sudo rm -rf /opt/hostedtoolcache/CodeQL &
+
+          sed -i 's|/mnt/disks/build-disk/src/android/llvm-r[^)]*||g' scripts/mkcompile_h
           
           make -j$(nproc --all) O=out gki_defconfig
           make -j$(nproc --all) O=out Image
