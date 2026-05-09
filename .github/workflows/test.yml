@@ -1,0 +1,211 @@
+name: Build GKI with xxKSU
+
+permissions:
+  contents: write
+
+on:
+  workflow_call:
+    inputs:
+      sub_level:
+        required: true
+        type: string
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      sub_level:
+        description: 'Kernel sub level (e.g. 23)'
+        required: true
+        type: string
+        default: '23'
+
+jobs:
+  build:
+    name: xxKSU 6.12.${{ inputs.sub_level || github.event.inputs.sub_level || '23' }} (2025-06)
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      ANDROID_VERSION: 'android16'
+      KERNEL_VERSION: '6.12'
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          clean: false
+          submodules: true
+
+      - name: Free Disk Space & Install Dependencies
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune -af 2>/dev/null || true
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            binutils python-is-python3 libssl-dev libelf-dev libdw-dev \
+            curl bison flex make git perl gcc bc zip unzip aria2 \
+            m4
+
+      - name: Initialize Workspace & Toolchains
+        run: |
+          mkdir -p kernel_workspace && cd kernel_workspace 
+          
+          # 内核源码
+          aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/android16-6.12-2025-06_r58/common-android16-6.12-2025-06_r58.tar.gz" -o common.tar.gz
+          mkdir -p common && tar -xzf common.tar.gz -C common && rm common.tar.gz
+          
+          # Clang
+          aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/r536225/clang-r536225.tar.gz" -o clang.tar.gz
+          mkdir -p clang && tar -xzf clang.tar.gz -C clang && rm clang.tar.gz
+          
+          # Rust
+          aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/r536225/rust-1.82.0.tar.gz" -o rust.tar.gz
+          mkdir -p rust && tar -xzf rust.tar.gz -C rust && rm rust.tar.gz
+          
+          # Clang-tools (bindgen, pahole)
+          aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/r536225/clang-tools-r536225.tar.gz" -o clang-tools.tar.gz
+          mkdir -p clang-tools && tar -xzf clang-tools.tar.gz -C clang-tools && rm clang-tools.tar.gz
+          
+          # Build-tools
+          aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/r536225/build-tools.tar.gz" -o build-tools.tar.gz
+          mkdir -p build-tools && tar -xzf build-tools.tar.gz -C build-tools && rm build-tools.tar.gz
+          
+          sed -i 's/ -dirty//g' common/scripts/setlocalversion
+          
+      - name: Get Kernel Short Hash
+        id: kernel_hash
+        run: |
+          cd kernel_workspace/common
+          SHORT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+          echo "Kernel short hash: $SHORT_HASH"
+          echo "short_hash=$SHORT_HASH" >> $GITHUB_OUTPUT
+
+      - name: Setup xxKSU
+        run: |
+          cd kernel_workspace/common
+          git clone --depth=1 --branch=master https://github.com/backslashxx/KernelSU.git KernelSU
+          ln -sf ../KernelSU/kernel drivers/kernelsu
+          grep -q "kernelsu" drivers/Makefile || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+          grep -q "kernelsu" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+
+      - name: Integrate xxKSU
+        run: |
+          cd kernel_workspace/common
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/manual-security-hooks-v1.9.patch"
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-manual-hooks-v2.0.patch"
+
+      - name: Get KSU Version
+        id: ksu_ver
+        run: |
+          git clone --depth=1 https://github.com/TheSillyOk/sh.git scripts
+          KSU_VER=$(./scripts/get_ksuver.sh "backslashxx" "KernelSU" "master" || echo "unknown")
+          echo "KSU version: $KSU_VER"
+          echo "ksu_ver=$KSU_VER" >> $GITHUB_OUTPUT
+
+      - name: Get Build Date
+        id: build_date
+        run: |
+          BUILD_DATE=$(date +'%y%m%d')
+          echo "Build date: $BUILD_DATE"
+          echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
+
+      - name: Inject Defconfig Flags
+        uses: ./.github/actions/kernel-config
+        with:
+          defconfig_path: "kernel_workspace/common/arch/arm64/configs/gki_defconfig"
+          build_config_path: "kernel_workspace/common/build.config.gki"
+          variant: "xxksu"
+          enable_susfs: "false"
+
+      - name: Compile Kernel
+        run: |
+          WORKDIR="$(pwd)"
+          export PATH="$WORKDIR/kernel_workspace/clang/bin:$PATH"
+          export PATH="$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
+          export PATH="$WORKDIR/kernel_workspace/clang-tools:$PATH"
+          export PATH="$WORKDIR/kernel_workspace/rust/bin:$PATH"
+          
+          echo "Clang version: $(clang --version | head -1)"
+          echo "Rustc version: $(rustc -V 2>/dev/null | head -1)"
+          echo "Bindgen version: $(bindgen --version 2>/dev/null | head -1)"
+          echo "pahole version: $(pahole --version 2>/dev/null | head -1 || echo '未安装')"
+          
+          cd kernel_workspace/common
+          
+          COMMON_REAL_PATH=$(pwd -P)
+          ROOT_REAL_PATH=$(dirname "$COMMON_REAL_PATH")
+          KCFLAGS=" -fdebug-prefix-map=$ROOT_REAL_PATH=."
+          KCFLAGS+=" -fmacro-prefix-map=$ROOT_REAL_PATH=."
+          KCFLAGS+=" -ffile-prefix-map=$ROOT_REAL_PATH=."
+          KCFLAGS+=" -no-canonical-prefixes -O2 -pipe -Wno-error -fno-stack-protector -D__ANDROID_COMMON_KERNEL__"
+          export KCFLAGS
+          
+          export LLVM=1
+          export LLVM_IAS=1
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export HOSTCC=clang
+          export HOSTLD=ld.lld
+          export CC=clang
+          export LD=ld.lld
+          export AR=llvm-ar
+          export NM=llvm-nm
+          export OBJCOPY=llvm-objcopy
+          export OBJDUMP=llvm-objdump
+          export READELF=llvm-readelf
+          export STRIP=llvm-strip
+          
+          cp ${{ github.workspace }}/_setup_env.sh ./ 2>/dev/null || true
+          chmod 777 ./*.sh 2>/dev/null || true
+          source "./_setup_env.sh" 2>/dev/null || true
+          
+          export SOURCE_DATE_EPOCH=1757653061
+          export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
+          export KBUILD_BUILD_HOST="build-host"
+          export KBUILD_BUILD_USER="kleaf"
+          
+          sudo rm -rf /usr/share/dotnet &
+          sudo rm -rf /usr/local/lib/android &
+          sudo rm -rf /opt/ghc &
+          sudo rm -rf /opt/hostedtoolcache/CodeQL &
+          
+          make -j$(nproc --all) O=out gki_defconfig
+          make -j$(nproc --all) O=out Image
+          
+          echo "内核编译完成！"
+          echo "编译后空间:"
+          df -h
+
+      - name: Package & Boot-Ready Check
+        run: |
+          cd kernel_workspace
+          IMAGE="./common/out/arch/arm64/boot/Image"
+          [ -f "$IMAGE" ] || (echo " Image binary missing!" && exit 1)
+
+          git clone https://github.com/yapixel/AnyKernel3 --depth=1
+          cp "$IMAGE" ./AnyKernel3/ && cd AnyKernel3
+
+          SUB="${{ inputs.sub_level || github.event.inputs.sub_level || '100' }}"
+          KSU_VER="${{ steps.ksu_ver.outputs.ksu_ver }}"
+          SHORT_HASH="${{ steps.kernel_hash.outputs.short_hash }}"
+          
+          ZIP_NAME="KSU_popsicle_6.12.${SUB}+${KSU_VER#v}-${SHORT_HASH}.zip"
+          zip -r9 "../$ZIP_NAME" *
+          cd ..
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: kernel-xxksu
+          path: kernel_workspace/${{ env.ZIP_NAME }}
+
+  publish-release:
+    needs: build
+    uses: ./.github/workflows/release.yml
+    with:
+      ksu_variant: 'xxksu'
+      sub_level: ${{ inputs.sub_level || github.event.inputs.sub_level || '23' }}
+      kernel_ver: '6.12'
+      build_date: ${{ steps.build_date.outputs.build_date }}
+    secrets: inherit
