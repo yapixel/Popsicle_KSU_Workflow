@@ -20,27 +20,28 @@ runs:
         cd "${{ inputs.workdir }}"
         
         # 用完整路径调用 Clang
-        REAL_VERSION=$("${{ inputs.clang_dir }}/bin/clang" --version | head -1 | grep -oP 'clang version \K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        REAL_CLANG="${{ inputs.clang_dir }}/bin/clang"
+        REAL_VERSION=$("$REAL_CLANG" --version | head -1 | grep -oP 'clang version \K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         TARGET_VERSION="20.0.0"
         
         echo "Current clang version: $REAL_VERSION"
         echo "Target clang version: $TARGET_VERSION"
         
         if [ "$REAL_VERSION" = "$TARGET_VERSION" ]; then
-          echo "Clang version matches, no wrapper needed"
-          {
-            echo '#!/bin/bash'
-            echo 'exec clang "$@"'
-          } > cc-wrapper
-        else
-          echo "Clang version mismatch, creating wrapper to spoof as $TARGET_VERSION"
+          echo "Clang version is $TARGET_VERSION, creating wrapper to filter /mnt/ paths"
           {
             echo '#!/bin/bash'
             echo 'if [[ "$*" == *"--version"* ]]; then'
-            echo '    echo "Android (13290119, +pgo, +bolt, +lto, +mlgo, based on r547379) clang version 20.0.0 (https://android.googlesource.com/toolchain/llvm-project b718bcaf8c198c82f3021447d943401e3ab5bd54)"'
+            echo "    $REAL_CLANG --version 2>&1 | sed 's|/mnt/disks/build-disk/src/android/llvm-r[^)]*||g'"
             echo '    exit 0'
             echo 'fi'
-            echo 'exec clang "$@"'
+            echo "exec $REAL_CLANG \"\$@\""
+          } > cc-wrapper
+        else
+          echo "Clang version is $REAL_VERSION, no wrapper filtering needed"
+          {
+            echo '#!/bin/bash'
+            echo "exec $REAL_CLANG \"\$@\""
           } > cc-wrapper
         fi
         
