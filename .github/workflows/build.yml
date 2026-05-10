@@ -65,7 +65,7 @@ jobs:
           mkdir -p clang && tar -xzf clang.tar.gz -C clang && rm clang.tar.gz
           
           # Rust
-          aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/1.0/rust-1.83.0.tar.gz" -o rust.tar.gz
+          aria2c -s16 -x16 -k1M "https://github.com/MidoriKSU/dami-kernel-build/releases/download/1.0/rust-1.82.0.tar.gz" -o rust.tar.gz
           mkdir -p rust && tar -xzf rust.tar.gz -C rust && rm rust.tar.gz
           
           # Clang-tools (bindgen, pahole)
