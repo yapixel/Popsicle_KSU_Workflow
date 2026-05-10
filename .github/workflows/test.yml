@@ -59,8 +59,8 @@ jobs:
           # Clang
           #aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/r536225/clang-r536225.tar.gz" -o clang.tar.gz
           #aria2c -s16 -x16 -k1M "https://github.com/yapixel/gki-build-assets/releases/download/android16-6.12-2025-06_r58/clang-r547379.tar.gz" -o clang.tar.gz
-          #aria2c -s16 -x16 -k1M "https://github.com/ZyCromerZ/Clang/releases/download/20.0.0git-20250129-release/Clang-20.0.0git-20250129.tar.gz" -o clang.tar.gz
-          aria2c -s16 -x16 -k1M "https://github.com/ZyCromerZ/Clang/releases/download/22.0.0git-20250928-release/Clang-22.0.0git-20250928.tar.gz" -o clang.tar.gz
+          aria2c -s16 -x16 -k1M "https://github.com/ZyCromerZ/Clang/releases/download/20.0.0git-20250129-release/Clang-20.0.0git-20250129.tar.gz" -o clang.tar.gz
+          
           
           mkdir -p clang && tar -xzf clang.tar.gz -C clang && rm clang.tar.gz
           
