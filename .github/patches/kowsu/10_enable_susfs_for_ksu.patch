@@ -1,31 +1,22 @@
 From: Midori <lv@lvlv.lv>
-Date: Sun, 03 May 2026 23:00:00 +0900
-Subject: [PATCH] Fix missing SU Log for MidoriSU with SUSFS
+Date: Tue, 12 May 2026 07:00:00 +0900
+Subject: Fix SuSFS patch for latest MidoriSU
 
 ---
 diff --git a/kernel/Kbuild b/kernel/Kbuild
-index b7f68220..50c91307 100644
+index 88145377..1ad57fb5 100644
 --- a/kernel/Kbuild
 +++ b/kernel/Kbuild
-@@ -4,18 +4,7 @@ kernelsu-objs += feature/kernel_umount.o
- kernelsu-objs += feature/sulog.o
- kernelsu-objs += feature/sucompat.o
+@@ -6,9 +6,6 @@ kernelsu-objs += feature/sucompat.o
  
--kernelsu-objs += hook/lsm_hook.o
+ kernelsu-objs += hook/lsm_hook.o
  kernelsu-objs += hook/setuid_hook.o
 -kernelsu-objs += hook/syscall_event_bridge.o
 -kernelsu-objs += hook/syscall_hook_manager.o
 -kernelsu-objs += hook/tp_marker.o
--ifeq ($(CONFIG_ARM64),y)
--kernelsu-objs += hook/arm64/patch_memory.o
--kernelsu-objs += hook/arm64/syscall_hook.o
--else ifeq ($(CONFIG_X86_64),y)
--kernelsu-objs += hook/x86_64/patch_memory.o
--kernelsu-objs += hook/x86_64/syscall_hook.o
--endif
- 
- kernelsu-objs += infra/file_wrapper.o
- kernelsu-objs += infra/event_queue.o
+ ifeq ($(CONFIG_ARM64),y)
+ kernelsu-objs += hook/arm64/patch_memory.o
+ kernelsu-objs += hook/arm64/syscall_hook.o
 diff --git a/kernel/Kconfig b/kernel/Kconfig
 index c7701661..5c169f59 100644
 --- a/kernel/Kconfig
@@ -154,7 +145,7 @@ index 9ffda567..e64e93fb 100644
 +
  # Keep a new line here!! Because someone may append config
 diff --git a/kernel/core/init.c b/kernel/core/init.c
-index abf3eb8d..81d960a6 100644
+index 99772776..d736c542 100644
 --- a/kernel/core/init.c
 +++ b/kernel/core/init.c
 @@ -1,3 +1,9 @@
@@ -167,42 +158,25 @@ index abf3eb8d..81d960a6 100644
  #include <linux/export.h>
  #include <linux/fs.h>
  #include <linux/kobject.h>
-@@ -6,6 +12,7 @@
- #include <linux/sched.h>
- #include <linux/workqueue.h>
- #include <linux/moduleparam.h>
-+#include <linux/susfs.h>
- 
- #include "policy/allowlist.h"
- #include "policy/app_profile.h"
-@@ -13,7 +20,6 @@
+@@ -13,7 +19,6 @@
  #include "klog.h" // IWYU pragma: keep
  #include "manager/manager_observer.h"
  #include "manager/throne_tracker.h"
 -#include "hook/syscall_hook_manager.h"
+ #include "hook/lsm_hook.h"
  #include "runtime/ksud.h"
  #include "runtime/ksud_boot.h"
- #include "feature/sulog.h"
-@@ -21,16 +27,9 @@
- #include "ksu.h"
- #include "infra/file_wrapper.h"
- #include "selinux/selinux.h"
--#include "hook/syscall_hook.h"
+@@ -25,6 +30,9 @@
+ #include "hook/syscall_hook.h"
  #include "feature/adb_root.h"
--
--#if defined(__x86_64__)
--#include <asm/cpufeature.h>
--#include <linux/version.h>
--#ifndef X86_FEATURE_INDIRECT_SAFE
--#error "FATAL: Your kernel is missing the indirect syscall bypass patches!"
--#endif
--#endif
+ #include "feature/selinux_hide.h"
 +#include "hook/setuid_hook.h"
 +#include "feature/sucompat.h"
++#include <linux/susfs.h>
  
- // workaround for A12-5.10 kernel
- // Some third-party kernel (e.g. linegaeOS) uses wrong toolchain, which supports
-@@ -68,7 +67,6 @@ __attribute__((naked)) int __init kernelsu_init_early(void)
+ #if defined(__x86_64__)
+ #include <asm/cpufeature.h>
+@@ -70,7 +78,6 @@ __attribute__((naked)) int __init kernelsu_init_early(void)
  #endif
  
  struct cred *ksu_cred;
@@ -210,26 +184,10 @@ index abf3eb8d..81d960a6 100644
  
  #ifdef CONFIG_KSU_DEBUG
  bool allow_shell = true;
-@@ -79,28 +77,6 @@ module_param(allow_shell, bool, 0);
+@@ -97,12 +104,6 @@ int __init kernelsu_init(void)
+     }
+ #endif
  
- int __init kernelsu_init(void)
- {
--#if defined(__x86_64__)
--    // If the kernel has the hardening patch, X86_FEATURE_INDIRECT_SAFE must be set
--    if (!boot_cpu_has(X86_FEATURE_INDIRECT_SAFE)) {
--        pr_alert("*************************************************************");
--        pr_alert("**     NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE    **");
--        pr_alert("**                                                         **");
--        pr_alert("**        X86_FEATURE_INDIRECT_SAFE is not enabled!        **");
--        pr_alert("**      KernelSU will abort initialization to prevent      **");
--        pr_alert("**                     kernel panic.                       **");
--        pr_alert("**                                                         **");
--        pr_alert("**     NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE    **");
--        pr_alert("*************************************************************");
--        return -ENOSYS;
--    }
--#endif
--
 -#ifdef MODULE
 -    ksu_late_loaded = (current->pid != 1);
 -#else
@@ -239,18 +197,24 @@ index abf3eb8d..81d960a6 100644
  #ifdef CONFIG_KSU_DEBUG
      pr_alert("*************************************************************");
      pr_alert("**     NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE    **");
-@@ -119,54 +95,27 @@ int __init kernelsu_init(void)
+@@ -121,56 +122,21 @@ int __init kernelsu_init(void)
          pr_err("prepare cred failed!\n");
      }
  
--    ksu_syscall_hook_init();
++    ksu_feature_init();
+     ksu_syscall_hook_init();
++    ksu_supercalls_init();
+ 
+-    ksu_feature_init();
++    ksu_sucompat_init();
++    ksu_setuid_hook_init();
+     ksu_sulog_init();
+     ksu_adb_root_init();
+     ksu_lsm_hook_init();
+     ksu_selinux_hide_init();
 -
-     ksu_feature_init();
--    ksu_sulog_init();
--    ksu_adb_root_init();
- 
-     ksu_supercalls_init();
- 
+-    ksu_supercalls_init();
+-
 -    if (ksu_late_loaded) {
 -        pr_info("late load mode, skipping kprobe hooks\n");
 -
@@ -262,12 +226,10 @@ index abf3eb8d..81d960a6 100644
 -        // with KSU SELinux domain before enforcing SELinux, so it
 -        // can continue to access /data/app etc. after enforcement.
 -        escape_to_root_for_init();
-+    ksu_sucompat_init();
- 
+-
 -        ksu_allowlist_init();
 -        ksu_load_allow_list();
-+    ksu_setuid_hook_init();
- 
+-
 -        ksu_syscall_hook_manager_init();
 -
 -        ksu_throne_tracker_init();
@@ -276,34 +238,32 @@ index abf3eb8d..81d960a6 100644
 -
 -        ksu_boot_completed = true;
 -        track_throne(false);
-+    ksu_sulog_init();
- 
+-
 -        if (!getenforce()) {
 -            pr_info("Permissive SELinux, enforcing\n");
 -            setenforce(true);
 -        }
-+    ksu_adb_root_init();
- 
+-
 -    } else {
 -        ksu_syscall_hook_manager_init();
-+    ksu_allowlist_init();
- 
+-
 -        ksu_allowlist_init();
-+    ksu_throne_tracker_init();
- 
+-
 -        ksu_throne_tracker_init();
-+    ksu_ksud_init();
- 
+-
 -        ksu_ksud_init();
-+    ksu_file_wrapper_init();
- 
+-
 -        ksu_file_wrapper_init();
 -    }
++    ksu_allowlist_init();
++    ksu_throne_tracker_init();
++    ksu_ksud_init();
++    ksu_file_wrapper_init();
 +    susfs_init();
  
  #ifdef MODULE
  #ifndef CONFIG_KSU_DEBUG
-@@ -178,18 +127,12 @@ int __init kernelsu_init(void)
+@@ -182,18 +148,12 @@ int __init kernelsu_init(void)
  
  void __exit kernelsu_exit(void)
  {
@@ -323,16 +283,6 @@ index abf3eb8d..81d960a6 100644
      ksu_observer_exit();
  
      ksu_throne_tracker_exit();
-@@ -197,7 +140,9 @@ void __exit kernelsu_exit(void)
-     ksu_allowlist_exit();
- 
-     ksu_adb_root_exit();
-+
-     ksu_sulog_exit();
-+
-     ksu_feature_exit();
- 
-     if (ksu_cred) {
 diff --git a/kernel/feature/adb_root.c b/kernel/feature/adb_root.c
 index c41a9955..0e7819ec 100644
 --- a/kernel/feature/adb_root.c
@@ -942,7 +892,7 @@ index 3a3dfea8..b8486238 100644
 -
  #endif
 diff --git a/kernel/include/ksu.h b/kernel/include/ksu.h
-index 17f9b826..be81e626 100644
+index 621096be..2c41b2b2 100644
 --- a/kernel/include/ksu.h
 +++ b/kernel/include/ksu.h
 @@ -8,7 +8,6 @@
@@ -951,13 +901,13 @@ index 17f9b826..be81e626 100644
  extern struct cred *ksu_cred;
 -extern bool ksu_late_loaded;
  extern bool allow_shell;
+ extern struct selinux_policy *backup_sepolicy;
  
- static inline int startswith(char *s, char *prefix)
 diff --git a/kernel/policy/allowlist.c b/kernel/policy/allowlist.c
-index d5eac53f..0da06094 100644
+index 27186264..81faedf2 100644
 --- a/kernel/policy/allowlist.c
 +++ b/kernel/policy/allowlist.c
-@@ -306,14 +306,6 @@ bool ksu_uid_should_umount(uid_t uid)
+@@ -308,14 +308,6 @@ bool ksu_uid_should_umount(uid_t uid)
  {
      struct app_profile *profile;
      bool res;
@@ -1050,10 +1000,10 @@ index 80e3a9d5..7607146c 100644
  typedef int (*ksu_feature_get_t)(u64 *value);
  typedef int (*ksu_feature_set_t)(u64 value);
 diff --git a/kernel/runtime/boot_event.c b/kernel/runtime/boot_event.c
-index 5c6cf105..19b4f0b2 100644
+index bf71e708..2fc860dc 100644
 --- a/kernel/runtime/boot_event.c
 +++ b/kernel/runtime/boot_event.c
-@@ -12,6 +12,7 @@
+@@ -13,6 +13,7 @@
  
  bool ksu_module_mounted __read_mostly = false;
  bool ksu_boot_completed __read_mostly = false;
@@ -1061,7 +1011,7 @@ index 5c6cf105..19b4f0b2 100644
  
  void on_post_fs_data(void)
  {
-@@ -28,7 +29,7 @@ void on_post_fs_data(void)
+@@ -29,7 +30,7 @@ void on_post_fs_data(void)
      ksu_load_allow_list();
      ksu_observer_init();
      // Sanity check for safe mode only needs early-boot input samples.
@@ -1451,10 +1401,10 @@ index 25933bb6..ffe0d2c0 100644
 -    unregister_kprobe(&input_event_kp);
  }
 diff --git a/kernel/selinux/rules.c b/kernel/selinux/rules.c
-index 2fabb71a..bb259e5d 100644
+index a096f4d6..27d64983 100644
 --- a/kernel/selinux/rules.c
 +++ b/kernel/selinux/rules.c
-@@ -128,8 +128,14 @@ void apply_kernelsu_rules()
+@@ -153,8 +153,14 @@ void apply_kernelsu_rules()
      ksu_destroy_sepolicy(old_pol);
  
      reset_avc_cache();
