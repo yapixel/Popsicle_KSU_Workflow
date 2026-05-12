@@ -1,4 +1,4 @@
-name: GitHub Patch Merger 6.12 (Expert v2.1)
+name: GitHub Patch Merger 6.12 (Git Format-Patch)
 
 on:
   workflow_dispatch:
@@ -16,55 +16,41 @@ jobs:
           curl -L -o common.tar.gz https://github.com/yapixel/gki-build-assets/releases/download/android16-6.12-2025-06_r58/common-android16-6.12-2025-06_r58.tar.gz
           tar -xf common.tar.gz -C kernel_workspace
 
-      - name: Precise Git Merge
+      - name: Git Native Format Patch
         run: |
           # 1. 进入内核源码根目录
           cd kernel_workspace/common || cd kernel_workspace
           
-          # 2. 局部初始化 Git
+          # 2. 初始化 Git 并配置
           git init
           git config user.email "yapixel@github.com"
           git config user.name "yapixel"
 
-          # 3. 追踪目标文件
+          # 3. 局部追踪并提交 Base
           git add fs/exec.c fs/open.c fs/stat.c kernel/reboot.c \
                   security/security.c security/selinux/hooks.c \
                   security/selinux/avc.c security/selinux/selinuxfs.c
-          
-          git commit -m "base"
+          git commit -m "base: original kernel 6.12 source"
 
-          # 4. 按顺序应用补丁 (Scope-Min -> Selinux Hide)
+          # 4. 按顺序应用补丁
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-manual-hooks-v2.0.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/selinux_hide.patch"
 
-          # 5. 构造带有 Issue 溯源信息的 v2.1 补丁头
-          PATCH_FILE="${{ github.workspace }}/scope-min-manual-hooks-v2.1.patch"
-          cat << EOF > "$PATCH_FILE"
-          From: debiansid <yapixel@github.com>
-          Date: $(date -u +"%a, %d %b %Y %H:%M:%S +0000")
-          Subject: [PATCH] KernelSU Scope & SELinux Hide Integration v2.1
+          # 5. 提交改动，在 Commit Message 中包含来源
+          # 这里的消息会自动变成补丁的 Header
+          git add -u
+          git commit -m "scope-min-manual-hooks-v2.1" -m "Integration of Scope Hooks and SELinux Hide for Kernel 6.12.
+          
+Source:
+- Scope Hooks: https://github.com/backslashxx/KernelSU/issues/5
+- Integrated by yapixel for Android 16 GKI"
 
-          Description:
-          Integrated manual hooks for Non-Kprobes GKI kernels.
-          Combined scope-min hooks with SELinux hide logic.
-
-          Source:
-          - Scope Hooks: https://github.com/backslashxx/KernelSU/issues/5
-          - Integration: Integrated by yapixel for Android 16 (Kernel 6.12)
-
-          Files modified: fs/exec.c, fs/open.c, fs/stat.c, kernel/reboot.c, 
-                security/security.c, security/selinux/hooks.c, 
-                security/selinux/avc.c, security/selinux/selinuxfs.c
----
-EOF
-
-          # 6. 追加统计和 diff 内容
-          git diff --stat >> "$PATCH_FILE"
-          echo "" >> "$PATCH_FILE"
-          git diff >> "$PATCH_FILE"
+          # 6. 使用 git format-patch 吐出标准的 v2.1 补丁
+          # -1 表示针对最近的一次提交生成补丁，--stdout 将内容输出到指定文件
+          git format-patch -1 HEAD --stdout > "${{ github.workspace }}/scope-min-manual-hooks-v2.1.patch"
 
       - name: Export Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: scope-min-v2.1-patch
+          name: scope-min-v2.1-native
           path: scope-min-manual-hooks-v2.1.patch
