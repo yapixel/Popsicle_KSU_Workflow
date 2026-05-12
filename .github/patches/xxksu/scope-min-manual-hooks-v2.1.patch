@@ -1,6 +1,8 @@
+diff --git a/fs/exec.c b/fs/exec.c
+index ee89e0f..3548f8e 100644
 --- a/fs/exec.c
 +++ b/fs/exec.c
-@@ -2054,12 +2054,21 @@
+@@ -2054,12 +2054,21 @@ int kernel_execve(const char *kernel_filename,
  	return retval;
  }
  
@@ -22,7 +24,7 @@
  	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
  }
  
-@@ -2087,6 +2096,9 @@
+@@ -2087,6 +2096,9 @@ static int compat_do_execve(struct filename *filename,
  		.is_compat = true,
  		.ptr.compat = __envp,
  	};
@@ -32,11 +34,13 @@
  	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
  }
  
+diff --git a/fs/open.c b/fs/open.c
+index 1ff947b..b23f5bb 100644
 --- a/fs/open.c
 +++ b/fs/open.c
-@@ -354,6 +354,12 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
- 	return error;
+@@ -374,6 +374,12 @@ COMPAT_SYSCALL_DEFINE6(fallocate, int, fd, int, mode, compat_arg_u64_dual(offset
  }
+ #endif
  
 +#ifdef CONFIG_KSU
 +__attribute__((hot))
@@ -47,9 +51,9 @@
  /*
   * access() needs to use the real uid/gid, not the effective uid/gid.
   * We do this by temporarily clearing all FS-related capabilities and
-@@ -369,6 +375,10 @@ SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
- 	int res;
+@@ -473,6 +479,10 @@ static long do_faccessat(int dfd, const char __user *filename, int mode, int fla
  	unsigned int lookup_flags = LOOKUP_FOLLOW;
+ 	const struct cred *old_cred = NULL;
  
 +#ifdef CONFIG_KSU
 +	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
@@ -58,9 +62,11 @@
  	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
  		return -EINVAL;
  
+diff --git a/fs/stat.c b/fs/stat.c
+index adb071b..d5d9edf 100644
 --- a/fs/stat.c
 +++ b/fs/stat.c
-@@ -495,6 +495,12 @@
+@@ -495,6 +495,12 @@ SYSCALL_DEFINE2(newlstat, const char __user *, filename,
  	return cp_new_stat(&stat, statbuf);
  }
  
@@ -73,7 +79,7 @@
  #if !defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_SYS_NEWFSTATAT)
  SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
  		struct stat __user *, statbuf, int, flag)
-@@ -502,6 +508,9 @@
+@@ -502,6 +508,9 @@ SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
  	struct kstat stat;
  	int error;
  
@@ -83,7 +89,7 @@
  	error = vfs_fstatat(dfd, filename, &stat, flag);
  	if (error)
  		return error;
-@@ -509,6 +518,13 @@
+@@ -509,6 +518,13 @@ SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
  }
  #endif
  
@@ -97,7 +103,7 @@
  SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)
  {
  	struct kstat stat;
-@@ -516,7 +532,10 @@
+@@ -516,7 +532,10 @@ SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)
  
  	if (!error)
  		error = cp_new_stat(&stat, statbuf);
@@ -109,7 +115,7 @@
  	return error;
  }
  #endif
-@@ -649,6 +668,9 @@
+@@ -649,6 +668,9 @@ SYSCALL_DEFINE2(fstat64, unsigned long, fd, struct stat64 __user *, statbuf)
  	if (!error)
  		error = cp_new_stat64(&stat, statbuf);
  
@@ -119,7 +125,7 @@
  	return error;
  }
  
-@@ -657,7 +679,10 @@
+@@ -657,7 +679,10 @@ SYSCALL_DEFINE4(fstatat64, int, dfd, const char __user *, filename,
  {
  	struct kstat stat;
  	int error;
@@ -131,9 +137,11 @@
  	error = vfs_fstatat(dfd, filename, &stat, flag);
  	if (error)
  		return error;
+diff --git a/kernel/reboot.c b/kernel/reboot.c
+index bcc98b5..a51ffdf 100644
 --- a/kernel/reboot.c
 +++ b/kernel/reboot.c
-@@ -715,6 +715,11 @@
+@@ -715,6 +715,11 @@ DEFINE_MUTEX(system_transition_mutex);
   *
   * reboot doesn't sync: do that yourself before calling this.
   */
@@ -145,7 +153,7 @@
  SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
  		void __user *, arg)
  {
-@@ -722,6 +727,9 @@
+@@ -722,6 +727,9 @@ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
  	char buffer[256];
  	int ret = 0;
  
@@ -155,9 +163,38 @@
  	/* We only trust the superuser with rebooting the system. */
  	if (!ns_capable(pid_ns->user_ns, CAP_SYS_BOOT))
  		return -EPERM;
+diff --git a/security/selinux/avc.c b/security/selinux/avc.c
+index 29a9bf8..d4c20bb 100644
+--- a/security/selinux/avc.c
++++ b/security/selinux/avc.c
+@@ -648,6 +648,11 @@ static void avc_insert(u32 ssid, u32 tsid, u16 tclass,
+  * avc_audit_pre_callback - SELinux specific information
+  * will be called by generic audit code
+  * @ab: the audit buffer
++
++#if defined(CONFIG_KSU) && !defined(CONFIG_KPROBES)
++extern void ksu_slow_avc_audit(u32 *tsid);
++#endif
++
+  * @a: audit_data
+  */
+ static void avc_audit_pre_callback(struct audit_buffer *ab, void *a)
+@@ -661,6 +666,10 @@ static void avc_audit_pre_callback(struct audit_buffer *ab, void *a)
+ 	audit_log_format(ab, "avc:  %s ", sad->denied ? "denied" : "granted");
+ 
+ 	if (av == 0) {
++	
++#if defined(CONFIG_KSU) && !defined(CONFIG_KPROBES)
++	ksu_slow_avc_audit(&tsid);
++#endif
+ 		audit_log_format(ab, " null");
+ 		return;
+ 	}
+diff --git a/security/selinux/hooks.c b/security/selinux/hooks.c
+index fc926d3..1803985 100644
 --- a/security/selinux/hooks.c
 +++ b/security/selinux/hooks.c
-@@ -6585,10 +6585,20 @@
+@@ -6585,10 +6585,20 @@ static int selinux_getprocattr(struct task_struct *p,
  	return -EINVAL;
  }
  
@@ -178,34 +215,11 @@
  	if (attr)
  		return selinux_lsm_setattr(attr, value, size);
  	return -EINVAL;
---- a/security/selinux/avc.c
-+++ b/security/selinux/avc.c
-@@ -648,6 +648,11 @@
-  * avc_audit_pre_callback - SELinux specific information
-  * will be called by generic audit code
-  * @ab: the audit buffer
-+
-+#if defined(CONFIG_KSU) && !defined(CONFIG_KPROBES)
-+extern void ksu_slow_avc_audit(u32 *tsid);
-+#endif
-+
-  * @a: audit_data
-  */
- static void avc_audit_pre_callback(struct audit_buffer *ab, void *a)
-@@ -661,6 +666,10 @@
- 	audit_log_format(ab, "avc:  %s ", sad->denied ? "denied" : "granted");
- 
- 	if (av == 0) {
-+	
-+#if defined(CONFIG_KSU) && !defined(CONFIG_KPROBES)
-+	ksu_slow_avc_audit(&tsid);
-+#endif
- 		audit_log_format(ab, " null");
- 		return;
- 	}
+diff --git a/security/selinux/selinuxfs.c b/security/selinux/selinuxfs.c
+index 8acbaa4..34dc010 100644
 --- a/security/selinux/selinuxfs.c
 +++ b/security/selinux/selinuxfs.c
-@@ -668,6 +668,11 @@
+@@ -668,6 +668,11 @@ static ssize_t sel_write_context(struct file *file, char *buf, size_t size)
  static ssize_t sel_read_checkreqprot(struct file *filp, char __user *buf,
  				     size_t count, loff_t *ppos)
  {
@@ -217,14 +231,15 @@
  	char tmpbuf[TMPBUFLEN];
  	ssize_t length;
  
-@@ -678,6 +683,11 @@
+@@ -678,6 +683,11 @@ static ssize_t sel_read_checkreqprot(struct file *filp, char __user *buf,
  
  static ssize_t sel_write_checkreqprot(struct file *file, const char __user *buf,
  				      size_t count, loff_t *ppos)
-+{
++
 +#if defined(CONFIG_KSU) && !defined(CONFIG_KPROBES)
-+	ksu_sel_write_context(&file, &buf, &count);
++	ksu_sel_write_context(&file, &data, &size);
 +#endif
 +
+ {
  	char *page;
  	ssize_t length;
