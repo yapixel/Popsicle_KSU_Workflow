@@ -1,49 +1,48 @@
-name: Fix fs_open Patch Offset
+name: GitHub Patch Merger 6.12 (Expert Mode)
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
 
 jobs:
-  fix-offset:
+  merge-and-align:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Download Kernel Source
+      - name: Prepare Kernel Source
         run: |
-          mkdir -p kernel_src
+          mkdir -p kernel_workspace
           curl -L -o common.tar.gz https://github.com/yapixel/gki-build-assets/releases/download/android16-6.12-2025-06_r58/common-android16-6.12-2025-06_r58.tar.gz
-          tar -xf common.tar.gz -C kernel_src
+          tar -xf common.tar.gz -C kernel_workspace
 
-      - name: Regenerate Zero-Offset Patch
+      - name: Precise Git Merge
         run: |
-          # 1. 准确定位源码根目录
-          ROOT_DIR=$(find kernel_src -path "*/fs/open.c" | sed 's|/fs/open.c||' | head -n 1)
-          cd "$ROOT_DIR"
+          # 1. 进入内核源码根目录
+          cd kernel_workspace/common || cd kernel_workspace
           
-          # 2. 建立干净的原始备份
-          cp fs/open.c open.c.orig
+          # 2. 局部初始化 Git 仓库，仅用于路径和差异追踪
+          git init
+          git config user.email "patcher@example.com"
+          git config user.name "Patcher"
 
-          # 3. 应用带偏移的旧补丁
-          # 即使有 offset，patch 也会把代码写入文件
+          # 3. 核心：只 add 需要修改的目标文件
+          git add fs/exec.c fs/open.c fs/stat.c kernel/reboot.c \
+                  security/security.c security/selinux/hooks.c \
+                  security/selinux/avc.c security/selinux/selinuxfs.c
+          
+          git commit -m "base"
+
+          # 4. 按顺序应用补丁 (Scope -> Selinux)
+          # Actions 中的 patch 工具会自动寻找 6.12 的偏移位置
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-manual-hooks-v2.0.patch"
-         
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/selinux_hide.patch"
 
-          # 4. 重新 diff，生成 0 偏移补丁
-          # 这一步生成的 diff 将包含 6.12 最新的行号和上下文
-          diff -u open.c.orig fs/open.c > "${{ github.workspace }}/fs_open_612_perfect.patch" || true
+          # 5. 生成命名为 v2.1 的全量完美补丁
+          git diff > "${{ github.workspace }}/scope-min-manual-hooks-v2.1.patch"
 
-      - name: Output to Summary
-        run: |
-          echo "### fs/open.c 6.12 完美对齐补丁" >> $GITHUB_STEP_SUMMARY
-          echo "请复制以下内容替换原有的 ksu_fs_open.patch 文件：" >> $GITHUB_STEP_SUMMARY
-          echo '```diff' >> $GITHUB_STEP_SUMMARY
-          cat "${{ github.workspace }}/fs_open_612_perfect.patch" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-
-      - name: Upload Artifact
+      - name: Export Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fs-open-612-perfect
-          path: fs_open_612_perfect.patch
+          name: merged-v2.1-patch
+          path: scope-min-manual-hooks-v2.1.patch
