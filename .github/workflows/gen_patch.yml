@@ -1,64 +1,49 @@
-name: Generate Perfect KSU Patch
+name: Fix fs_open Patch Offset
 
 on:
   workflow_dispatch: 
 
 jobs:
-  build-patch:
+  fix-offset:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Download and Extract Kernel Source
+      - name: Download Kernel Source
         run: |
           mkdir -p kernel_src
           curl -L -o common.tar.gz https://github.com/yapixel/gki-build-assets/releases/download/android16-6.12-2025-06_r58/common-android16-6.12-2025-06_r58.tar.gz
           tar -xf common.tar.gz -C kernel_src
 
-      - name: Regenerate Perfect Patch
+      - name: Regenerate Zero-Offset Patch
         run: |
-          # 改进定位逻辑：寻找包含核心 security/selinux 结构的根目录
-          ROOT_DIR=$(find kernel_src -path "*/security/selinux" -type d | head -n 1 | sed 's|/security/selinux||')
-          
-          if [ -z "$ROOT_DIR" ]; then
-            echo "Error: Could not find kernel source root."
-            exit 1
-          fi
-          
+          # 1. 准确定位源码根目录
+          ROOT_DIR=$(find kernel_src -path "*/fs/open.c" | sed 's|/fs/open.c||' | head -n 1)
           cd "$ROOT_DIR"
-          echo "True Working directory: $(pwd)"
           
-          # 检查文件是否存在
-          if [ ! -f "security/selinux/hooks.c" ]; then
-            echo "Error: security/selinux/hooks.c not found in $(pwd)"
-            ls -F
-            exit 1
-          fi
-          
-          # 1. 创建备份
-          cp security/selinux/hooks.c hooks.c.orig
-          cp security/selinux/avc.c avc.c.orig
-          cp security/selinux/selinuxfs.c selinuxfs.c.orig
+          # 2. 建立干净的原始备份
+          cp fs/open.c open.c.orig
 
-          # 2. 应用旧补丁
-          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/selinux_hide.patch"
+          # 3. 应用带偏移的旧补丁
+          # 即使有 offset，patch 也会把代码写入文件
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-manual-hooks-v2.0.patch"
+         
 
-          # 3. 生成 0 偏移补丁
-          echo "--- Generating Perfect Patch ---"
-          diff -u hooks.c.orig security/selinux/hooks.c > "${{ github.workspace }}/ksu_612_perfect.patch" || true
-          diff -u avc.c.orig security/selinux/avc.c >> "${{ github.workspace }}/ksu_612_perfect.patch" || true
-          diff -u selinuxfs.c.orig security/selinux/selinuxfs.c >> "${{ github.workspace }}/ksu_612_perfect.patch" || true
+          # 4. 重新 diff，生成 0 偏移补丁
+          # 这一步生成的 diff 将包含 6.12 最新的行号和上下文
+          diff -u open.c.orig fs/open.c > "${{ github.workspace }}/fs_open_612_perfect.patch" || true
 
-      - name: Output Patch to Summary
+      - name: Output to Summary
         run: |
-          echo "### 6.12 完美补丁预览" >> $GITHUB_STEP_SUMMARY
+          echo "### fs/open.c 6.12 完美对齐补丁" >> $GITHUB_STEP_SUMMARY
+          echo "请复制以下内容替换原有的 ksu_fs_open.patch 文件：" >> $GITHUB_STEP_SUMMARY
           echo '```diff' >> $GITHUB_STEP_SUMMARY
-          cat "${{ github.workspace }}/ksu_612_perfect.patch" >> $GITHUB_STEP_SUMMARY
+          cat "${{ github.workspace }}/fs_open_612_perfect.patch" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
-      - name: Upload Patch Artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: perfect-ksu-patch
-          path: ksu_612_perfect.patch
+          name: fs-open-612-perfect
+          path: fs_open_612_perfect.patch
