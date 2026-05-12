@@ -34,9 +34,9 @@
  
 --- a/fs/open.c
 +++ b/fs/open.c
-@@ -374,6 +374,12 @@
+@@ -354,6 +354,12 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
+ 	return error;
  }
- #endif
  
 +#ifdef CONFIG_KSU
 +__attribute__((hot))
@@ -47,9 +47,9 @@
  /*
   * access() needs to use the real uid/gid, not the effective uid/gid.
   * We do this by temporarily clearing all FS-related capabilities and
-@@ -473,6 +479,10 @@
+@@ -369,6 +375,10 @@ SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
+ 	int res;
  	unsigned int lookup_flags = LOOKUP_FOLLOW;
- 	const struct cred *old_cred = NULL;
  
 +#ifdef CONFIG_KSU
 +	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
@@ -154,7 +154,8 @@
 +#endif
  	/* We only trust the superuser with rebooting the system. */
  	if (!ns_capable(pid_ns->user_ns, CAP_SYS_BOOT))
- 		return -EPERM;--- a/security/selinux/hooks.c
+ 		return -EPERM;
+--- a/security/selinux/hooks.c
 +++ b/security/selinux/hooks.c
 @@ -6585,10 +6585,20 @@
  	return -EINVAL;
@@ -220,11 +221,10 @@
  
  static ssize_t sel_write_checkreqprot(struct file *file, const char __user *buf,
  				      size_t count, loff_t *ppos)
-+
++{
 +#if defined(CONFIG_KSU) && !defined(CONFIG_KPROBES)
-+	ksu_sel_write_context(&file, &data, &size);
++	ksu_sel_write_context(&file, &buf, &count);
 +#endif
 +
- {
  	char *page;
  	ssize_t length;
