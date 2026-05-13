@@ -81,7 +81,7 @@ jobs:
       - name: Setup xxKSU
         run: |
           cd kernel_workspace/common
-          git clone --depth=1 --branch=master https://github.com/backslashxx/KernelSU.git KernelSU
+          git clone  --branch=master https://github.com/backslashxx/KernelSU.git KernelSU
           cd KernelSU 
           git checkout v3.2.4-28
           cd ..
