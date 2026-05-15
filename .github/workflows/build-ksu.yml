@@ -1,4 +1,4 @@
-name:  Build KowSU
+name:  Build tiann KSU
 
 on:
   workflow_dispatch:
@@ -58,10 +58,10 @@ jobs:
           
           sed -i 's/ -dirty//g' common/scripts/setlocalversion
 
-      - name: Setup KowSU
+      - name: Setup tiann KSU
         run: |
           cd kernel_workspace/common
-          git clone --depth=1 --branch=master https://github.com/KOWX712/KernelSU.git KernelSU
+          git clone --depth=1 --branch=master https://github.com/tiann/KernelSU KernelSU
           ln -sf ../KernelSU/kernel drivers/kernelsu
           grep -q "kernelsu" drivers/Makefile || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
           grep -q "kernelsu" drivers/Kconfig || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
