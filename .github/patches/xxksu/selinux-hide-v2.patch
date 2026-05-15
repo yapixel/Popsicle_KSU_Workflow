@@ -23,31 +23,31 @@
  	return -EINVAL;
 --- a/security/selinux/avc.c
 +++ b/security/selinux/avc.c
-@@ -648,6 +648,11 @@
-  * avc_audit_pre_callback - SELinux specific information
-  * will be called by generic audit code
-  * @ab: the audit buffer
-+
+@@ -747,7 +747,11 @@
+ 		kfree(scontext);
+ 	}
+ }
+-
 +#if defined(CONFIG_KSU)
 +extern bool ksu_slow_avc_audit_full(u32 *ssid, u32 *tsid, u16 *tclass,
 +			    u32 *requested, u32 *audited, u32 *denied, int *result,
 +			    void **a, unsigned int *flags);
-+
-  * @a: audit_data
-  */
- static void avc_audit_pre_callback(struct audit_buffer *ab, void *a)
-@@ -661,6 +666,10 @@
- 	audit_log_format(ab, "avc:  %s ", sad->denied ? "denied" : "granted");
- 
- 	if (av == 0) {
++#endif
+ /*
+  * This is the slow part of avc audit with big stack footprint.
+  * Note that it is non-blocking and can be called from under
+@@ -759,6 +763,11 @@
+ {
+ 	struct common_audit_data stack_data;
+ 	struct selinux_audit_data sad;
 +	
 +#if defined(CONFIG_KSU)
 +	if (!ksu_slow_avc_audit_full(&ssid, &tsid, &tclass, &requested, &audited, &denied, &result, (void **)&a, &flags))
 +		return 0;
 +#endif
- 		audit_log_format(ab, " null");
- 		return;
- 	}
+ 
+ 	if (WARN_ON(!tclass || tclass >= ARRAY_SIZE(secclass_map)))
+ 		return -EINVAL;
 --- a/security/selinux/selinuxfs.c
 +++ b/security/selinux/selinuxfs.c
 @@ -668,6 +668,11 @@
