@@ -28,9 +28,10 @@
   * will be called by generic audit code
   * @ab: the audit buffer
 +
-+#if defined(CONFIG_KSU) && !defined(CONFIG_KPROBES)
-+extern void ksu_slow_avc_audit(u32 *tsid);
-+#endif
++#if defined(CONFIG_KSU)
++extern bool ksu_slow_avc_audit_full(u32 *ssid, u32 *tsid, u16 *tclass,
++			    u32 *requested, u32 *audited, u32 *denied, int *result,
++			    void **a, unsigned int *flags);
 +
   * @a: audit_data
   */
@@ -40,8 +41,9 @@
  
  	if (av == 0) {
 +	
-+#if defined(CONFIG_KSU) && !defined(CONFIG_KPROBES)
-+	ksu_slow_avc_audit(&tsid);
++#if defined(CONFIG_KSU)
++	if (!ksu_slow_avc_audit_full(&ssid, &tsid, &tclass, &requested, &audited, &denied, &result, (void **)&a, &flags))
++		return 0;
 +#endif
  		audit_log_format(ab, " null");
  		return;
