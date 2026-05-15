@@ -190,5 +190,5 @@ jobs:
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v7.0.0
         with:
-          name: kernel-kowsu
+          name: kernel-ksu-susfs
           path: kernel_workspace/${{ env.ZIP_NAME }}
