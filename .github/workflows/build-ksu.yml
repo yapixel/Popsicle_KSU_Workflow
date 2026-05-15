@@ -11,7 +11,7 @@ on:
 
 jobs:
   build:
-    name: KowSU 6.12.${{ inputs.sub_level }}
+    name: KSU 6.12.${{ inputs.sub_level }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
     env:
