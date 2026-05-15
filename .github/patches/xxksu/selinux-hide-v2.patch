@@ -1,0 +1,74 @@
+--- a/security/selinux/hooks.c
++++ b/security/selinux/hooks.c
+@@ -6585,10 +6585,20 @@
+ 	return -EINVAL;
+ }
+ 
++
++#ifdef CONFIG_KSU
++extern int ksu_hide_setprocattr(const char *name, void *value, size_t size);
++#endif
++
+ static int selinux_setprocattr(const char *name, void *value, size_t size)
+ {
+ 	int attr = lsm_name_to_attr(name);
+ 
++#ifdef CONFIG_KSU
++	ksu_hide_setprocattr(name, value, size);
++#endif
++
++
+ 	if (attr)
+ 		return selinux_lsm_setattr(attr, value, size);
+ 	return -EINVAL;
+--- a/security/selinux/avc.c
++++ b/security/selinux/avc.c
+@@ -648,6 +648,11 @@
+  * avc_audit_pre_callback - SELinux specific information
+  * will be called by generic audit code
+  * @ab: the audit buffer
++
++#if defined(CONFIG_KSU) && !defined(CONFIG_KPROBES)
++extern void ksu_slow_avc_audit(u32 *tsid);
++#endif
++
+  * @a: audit_data
+  */
+ static void avc_audit_pre_callback(struct audit_buffer *ab, void *a)
+@@ -661,6 +666,10 @@
+ 	audit_log_format(ab, "avc:  %s ", sad->denied ? "denied" : "granted");
+ 
+ 	if (av == 0) {
++	
++#if defined(CONFIG_KSU) && !defined(CONFIG_KPROBES)
++	ksu_slow_avc_audit(&tsid);
++#endif
+ 		audit_log_format(ab, " null");
+ 		return;
+ 	}
+--- a/security/selinux/selinuxfs.c
++++ b/security/selinux/selinuxfs.c
+@@ -668,6 +668,11 @@
+ static ssize_t sel_read_checkreqprot(struct file *filp, char __user *buf,
+ 				     size_t count, loff_t *ppos)
+ {
++
++#if defined(CONFIG_KSU) && !defined(CONFIG_KPROBES)
++extern void ksu_sel_write_context(struct file **file, char **buf, size_t *size);
++#endif
++
+ 	char tmpbuf[TMPBUFLEN];
+ 	ssize_t length;
+ 
+@@ -678,6 +683,11 @@
+ 
+ static ssize_t sel_write_checkreqprot(struct file *file, const char __user *buf,
+ 				      size_t count, loff_t *ppos)
++
++#if defined(CONFIG_KSU) && !defined(CONFIG_KPROBES)
++	ksu_sel_write_context(&file, &data, &size);
++#endif
++
+ {
+ 	char *page;
+ 	ssize_t length;
