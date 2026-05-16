@@ -1,0 +1,72 @@
+--- a/security/selinux/hooks.c
++++ b/security/selinux/hooks.c
+@@ -6585,10 +6585,20 @@
+ 	return -EINVAL;
+ }
+ 
++
++#ifdef CONFIG_KSU
++extern int ksu_hide_setprocattr(const char *name, void *value, size_t size);
++#endif
++
+ static int selinux_setprocattr(const char *name, void *value, size_t size)
+ {
+ 	int attr = lsm_name_to_attr(name);
+ 
++#ifdef CONFIG_KSU
++	ksu_hide_setprocattr(name, value, size);
++#endif
++
++
+ 	if (attr)
+ 		return selinux_lsm_setattr(attr, value, size);
+ 	return -EINVAL;
+--- a/security/selinux/avc.c
++++ b/security/selinux/avc.c
+@@ -747,7 +747,11 @@
+ 		kfree(scontext);
+ 	}
+ }
+-
++#if defined(CONFIG_KSU)
++extern bool ksu_slow_avc_audit_full(u32 *ssid, u32 *tsid, u16 *tclass,
++			    u32 *requested, u32 *audited, u32 *denied, int *result,
++			    void **a, unsigned int *flags);
++#endif
+ /*
+  * This is the slow part of avc audit with big stack footprint.
+  * Note that it is non-blocking and can be called from under
+@@ -759,6 +763,11 @@
+ {
+ 	struct common_audit_data stack_data;
+ 	struct selinux_audit_data sad;
++	
+#if defined(CONFIG_KSU)
+	unsigned int ksu_flags = 0;
+	if (!ksu_slow_avc_audit_full(&ssid, &tsid, &tclass, &requested, &audited, &denied, &result, (void **)&a, &ksu_flags))
+		return result;
+ #endif
+ 
+ 	if (WARN_ON(!tclass || tclass >= ARRAY_SIZE(secclass_map)))
+ 		return -EINVAL;
+--- a/security/selinux/selinuxfs.c
++++ b/security/selinux/selinuxfs.c
+@@ -668,6 +668,11 @@
+ static ssize_t sel_read_checkreqprot(struct file *filp, char __user *buf,
+ 				     size_t count, loff_t *ppos)
+ {
++
++#if defined(CONFIG_KSU) && !defined(CONFIG_KPROBES)
++extern void ksu_sel_write_context(struct file **file, char **buf, size_t *size);
++#endif
++
+ 	char tmpbuf[TMPBUFLEN];
+ 	ssize_t length;
+ 
+@@ -678,6 +683,11 @@
+ 
+ static ssize_t sel_write_checkreqprot(struct file *file, const char __user *buf,
+ 				      size_t count, loff_t *ppos)
++
++#if defined(CONFIG_KSU) && !defined(CONFIG_KPROBES)
++	ksu_sel_write_context(&file, &data, &size);
