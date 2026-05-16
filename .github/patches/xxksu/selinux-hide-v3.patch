@@ -70,3 +70,8 @@
 +
 +#if defined(CONFIG_KSU) && !defined(CONFIG_KPROBES)
 +	ksu_sel_write_context(&file, &data, &size);
++#endif
++
+ {
+ 	char *page;
+ 	ssize_t length;
