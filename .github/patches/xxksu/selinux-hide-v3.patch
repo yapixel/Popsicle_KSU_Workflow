@@ -36,7 +36,7 @@
  /*
   * This is the slow part of avc audit with big stack footprint.
   * Note that it is non-blocking and can be called from under
-@@ -759,6 +763,11 @@
+@@ -759,6 +763,12 @@
  {
  	struct common_audit_data stack_data;
  	struct selinux_audit_data sad;
