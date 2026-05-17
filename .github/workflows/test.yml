@@ -79,7 +79,7 @@ jobs:
       - name: Setup xxKSU
         run: |
           cd kernel_workspace/common
-          git clone  --branch=staging https://github.com/backslashxx/KernelSU.git KernelSU
+          git clone  --branch=master https://github.com/backslashxx/KernelSU.git KernelSU
           
           ln -sf ../KernelSU/kernel drivers/kernelsu
           grep -q "kernelsu" drivers/Makefile || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
