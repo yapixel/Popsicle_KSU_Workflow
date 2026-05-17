@@ -42,7 +42,7 @@
 +		
 +#if defined(CONFIG_KSU)
 +	if (!ksu_slow_avc_audit_full(&ssid, &tsid, &tclass, &requested, &audited, &denied, &result, (void **)&a))
-+		return 0;
++		return result;
 +#endif
  
  	if (!a) {
